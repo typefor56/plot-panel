@@ -1,0 +1,80 @@
+{
+  "name": "plot-panel",
+  "displayName": "Plot Panel",
+  "description": "Automatic figure capture and history for Jupyter notebooks and the Interactive Window, in a dedicated sidebar view.",
+  "version": "0.1.0",
+  "publisher": "for56",
+  "license": "MIT",
+  "private": true,
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Data Science",
+    "Visualization",
+    "Notebooks"
+  ],
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "plotPanel",
+          "title": "Plots",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "plotPanel": [
+        {
+          "type": "webview",
+          "id": "plotPanel.plots",
+          "name": "Plots",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Plot Panel",
+      "properties": {
+        "plotPanel.autoReveal": {
+          "type": "boolean",
+          "default": true,
+          "description": "Reveal the Plots view automatically when a new figure arrives."
+        },
+        "plotPanel.followLatest": {
+          "type": "boolean",
+          "default": true,
+          "description": "Always select the most recent figure when one arrives. When disabled, the current selection is kept."
+        },
+        "plotPanel.historyLimit": {
+          "type": "number",
+          "default": 50,
+          "minimum": 1,
+          "maximum": 500,
+          "description": "Maximum number of figures kept in the history. Oldest figures are evicted first."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -w -p ./",
+    "pretest": "npm run compile",
+    "test": "vscode-test",
+    "package": "vsce package --allow-missing-repository"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^20.19.43",
+    "@types/vscode": "1.90.0",
+    "@vscode/test-cli": "^0.0.15",
+    "@vscode/test-electron": "^3.1.0",
+    "@vscode/vsce": "^3.9.2",
+    "typescript": "^7.0.2"
+  }
+}
