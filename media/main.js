@@ -22,6 +22,8 @@
   let entries = [];
   /** @type {string | undefined} */
   let selectedId = undefined;
+  /** @type {'gallery' | 'single'} 'single' pins one entry: no strip, no navigation. */
+  let sessionMode = 'gallery';
   /** @type {Set<string>} ids whose full image has been requested */
   const requested = new Set();
 
@@ -117,6 +119,12 @@
   }
 
   function renderStrip() {
+    if (sessionMode === 'single') {
+      strip.textContent = '';
+      strip.hidden = true;
+      renderSelection();
+      return;
+    }
     strip.textContent = '';
     for (const entry of entries) {
       const button = document.createElement('button');
@@ -219,6 +227,7 @@
     const message = event.data;
     switch (message.type) {
       case 'state':
+        sessionMode = message.sessionMode === 'single' ? 'single' : 'gallery';
         entries = message.entries.slice();
         selectedId = message.selectedId;
         requested.clear();
@@ -226,23 +235,38 @@
         renderStrip();
         break;
       case 'added':
+        // Single sessions stay pinned; the host does not send this, but stay safe.
+        if (sessionMode === 'single') {
+          break;
+        }
         entries.push(message.entry);
         renderNotice(undefined);
         renderStrip();
         break;
       case 'evicted':
         entries = entries.filter((entry) => !message.ids.includes(entry.id));
+        if (sessionMode === 'single' && selectedId !== undefined && findEntry(selectedId) === undefined) {
+          selectedId = undefined;
+          renderNotice('This plot was removed from the history.');
+        }
         renderStrip();
         break;
       case 'selected':
+        if (sessionMode === 'single') {
+          break;
+        }
         selectedId = message.id;
         renderSelection();
         break;
       case 'cleared':
         entries = [];
-        selectedId = undefined;
         requested.clear();
-        renderNotice(undefined);
+        if (sessionMode === 'single' && selectedId !== undefined) {
+          renderNotice('This plot was removed from the history.');
+        } else {
+          renderNotice(undefined);
+        }
+        selectedId = undefined;
         renderStrip();
         break;
       case 'notice':
@@ -270,6 +294,9 @@
   });
 
   document.addEventListener('keydown', (event) => {
+    if (sessionMode !== 'gallery') {
+      return;
+    }
     if (event.key === 'ArrowLeft') {
       vscode.postMessage({ type: 'nav', direction: 'previous' });
       event.preventDefault();

@@ -4,6 +4,7 @@ import { registerCommands } from './commands';
 import { PlotHistory } from './history';
 import { PlotStore } from './persistence';
 import { PlotsViewProvider } from './plotsView';
+import { SessionRegistry } from './sessionRegistry';
 import { ThumbnailCache } from './thumbnails';
 
 /** Public surface returned by activate(), used by the extension-host tests. */
@@ -22,15 +23,17 @@ export function activate(context: vscode.ExtensionContext): PlotPanelApi {
   const history = new PlotHistory(configuration().get('historyLimit', 50));
   const capture = new PlotCapture(history, () => configuration().get('followLatest', true));
   const thumbnails = new ThumbnailCache();
-  const provider = new PlotsViewProvider(context.extensionUri, history, thumbnails);
+  const registry = new SessionRegistry(history);
+  const provider = new PlotsViewProvider(context.extensionUri, history, thumbnails, registry);
   const store = new PlotStore(vscode.Uri.joinPath(context.globalStorageUri, 'plots'));
 
   context.subscriptions.push(
     capture,
+    registry,
     provider,
     vscode.window.registerWebviewViewProvider(PlotsViewProvider.viewType, provider),
     capture.onUnsupportedOutput((mime, source) => {
-      provider.showNotice(
+      registry.broadcastNotice(
         `Interactive output from ${source} (${mime}) has no static image to capture.`,
       );
     }),
