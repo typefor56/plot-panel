@@ -21,19 +21,57 @@ body {
   flex: 1 1 auto;
   min-height: 0;
   display: flex;
-  align-items: center;
-  justify-content: center;
   padding: 8px;
+  overflow: hidden;
 }
 
+/* margin: auto centers the figure when it is smaller than the stage and
+   keeps every edge reachable when a zoomed figure overflows into scroll. */
 #figure {
+  margin: auto;
+}
+
+/* Display modes, driven by the host through body[data-display-mode].
+   'fit' (and no attribute) is the historical contain behaviour. */
+body:not([data-display-mode]) #figure,
+body[data-display-mode='fit'] #figure {
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
 }
 
+body[data-display-mode='fill-width'] #stage,
+body[data-display-mode='fill-height'] #stage,
+body[data-display-mode='actual'] #stage,
+body[data-display-mode='zoom-50'] #stage,
+body[data-display-mode='zoom-75'] #stage,
+body[data-display-mode='zoom-200'] #stage {
+  overflow: auto;
+}
+
+body[data-display-mode='fill-width'] #figure {
+  width: 100%;
+  height: auto;
+}
+
+body[data-display-mode='fill-height'] #figure {
+  height: 100%;
+  width: auto;
+}
+
+/* 'actual' needs no rule: the image renders at its natural size.
+   'zoom-*' widths are set in pixels by main.js from naturalWidth. */
+
+/* Dark filter: inverts bright plot backgrounds for dark themes. A filter
+   function, not a color — theme variables still drive every color. */
+body.dark-filter #figure,
+body.dark-filter .thumb img {
+  filter: invert(1) hue-rotate(180deg);
+}
+
 #empty {
-  margin: 0 12px;
+  margin: auto;
+  padding: 0 12px;
   text-align: center;
   color: var(--vscode-descriptionForeground);
 }

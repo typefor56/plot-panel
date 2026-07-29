@@ -74,6 +74,60 @@
         "title": "Export All Plots\u2026",
         "category": "Plot Panel",
         "icon": "$(save-all)"
+      },
+      {
+        "command": "plotPanel.zoomFit",
+        "title": "Zoom to Fit",
+        "shortTitle": "Fit",
+        "category": "Plot Panel"
+      },
+      {
+        "command": "plotPanel.zoomFifty",
+        "title": "Zoom to 50%",
+        "shortTitle": "50%",
+        "category": "Plot Panel"
+      },
+      {
+        "command": "plotPanel.zoomSeventyFive",
+        "title": "Zoom to 75%",
+        "shortTitle": "75%",
+        "category": "Plot Panel"
+      },
+      {
+        "command": "plotPanel.zoomOneHundred",
+        "title": "Zoom to 100%",
+        "shortTitle": "100%",
+        "category": "Plot Panel"
+      },
+      {
+        "command": "plotPanel.zoomTwoHundred",
+        "title": "Zoom to 200%",
+        "shortTitle": "200%",
+        "category": "Plot Panel"
+      },
+      {
+        "command": "plotPanel.sizeFillWidth",
+        "title": "Size Plot to Fill Width",
+        "shortTitle": "Fill Width",
+        "category": "Plot Panel"
+      },
+      {
+        "command": "plotPanel.sizeFillHeight",
+        "title": "Size Plot to Fill Height",
+        "shortTitle": "Fill Height",
+        "category": "Plot Panel"
+      },
+      {
+        "command": "plotPanel.sizeActual",
+        "title": "Size Plot to Actual Size",
+        "shortTitle": "Actual Size",
+        "category": "Plot Panel"
+      },
+      {
+        "command": "plotPanel.toggleDarkFilter",
+        "title": "Toggle Dark Filter on Plots",
+        "category": "Plot Panel",
+        "icon": "$(color-mode)"
       }
     ],
     "menus": {

@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import type { DisplayOptions } from './displayOptions';
 import type { PlotHistory } from './history';
 import type { SessionRegistry } from './sessionRegistry';
 import type { ThumbnailCache } from './thumbnails';
@@ -19,6 +20,7 @@ export class PlotsViewProvider implements vscode.WebviewViewProvider, vscode.Dis
     private readonly extensionUri: vscode.Uri,
     private readonly history: PlotHistory,
     private readonly thumbnails: ThumbnailCache,
+    private readonly display: DisplayOptions,
     private readonly registry: SessionRegistry,
   ) {}
 
@@ -30,6 +32,7 @@ export class PlotsViewProvider implements vscode.WebviewViewProvider, vscode.Dis
       this.extensionUri,
       this.history,
       this.thumbnails,
+      this.display,
       this.registry,
       { mode: 'gallery' },
     );

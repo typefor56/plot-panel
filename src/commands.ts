@@ -1,5 +1,6 @@
 import * as os from 'node:os';
 import * as vscode from 'vscode';
+import type { DisplayOptions } from './displayOptions';
 import type { PlotHistory } from './history';
 import { extensionForMime } from './mime';
 import type { PlotsViewProvider } from './plotsView';
@@ -68,6 +69,7 @@ export function registerCommands(
   context: vscode.ExtensionContext,
   history: PlotHistory,
   provider: PlotsViewProvider,
+  display: DisplayOptions,
 ): void {
   context.subscriptions.push(
     vscode.commands.registerCommand('plotPanel.previousPlot', () => history.previous()),
@@ -76,5 +78,18 @@ export function registerCommands(
     vscode.commands.registerCommand('plotPanel.savePlot', () => savePlot(history)),
     vscode.commands.registerCommand('plotPanel.copyPlot', () => provider.copySelected()),
     vscode.commands.registerCommand('plotPanel.exportAll', () => exportAll(history)),
+    vscode.commands.registerCommand('plotPanel.zoomFit', () => display.setMode('fit')),
+    vscode.commands.registerCommand('plotPanel.zoomFifty', () => display.setMode('zoom-50')),
+    vscode.commands.registerCommand('plotPanel.zoomSeventyFive', () => display.setMode('zoom-75')),
+    vscode.commands.registerCommand('plotPanel.zoomOneHundred', () => display.setMode('actual')),
+    vscode.commands.registerCommand('plotPanel.zoomTwoHundred', () => display.setMode('zoom-200')),
+    vscode.commands.registerCommand('plotPanel.sizeFillWidth', () => display.setMode('fill-width')),
+    vscode.commands.registerCommand('plotPanel.sizeFillHeight', () =>
+      display.setMode('fill-height'),
+    ),
+    vscode.commands.registerCommand('plotPanel.sizeActual', () => display.setMode('actual')),
+    vscode.commands.registerCommand('plotPanel.toggleDarkFilter', () =>
+      display.toggleDarkFilter(),
+    ),
   );
 }

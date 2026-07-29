@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { PlotCapture } from './capture';
 import { registerCommands } from './commands';
+import { DisplayOptions } from './displayOptions';
 import { PlotHistory } from './history';
 import { PlotStore } from './persistence';
 import { PlotsViewProvider } from './plotsView';
@@ -11,6 +12,7 @@ import { ThumbnailCache } from './thumbnails';
 export interface PlotPanelApi {
   readonly history: PlotHistory;
   readonly capture: PlotCapture;
+  readonly display: DisplayOptions;
   /** Resolves once the persisted history has been restored and the store attached. */
   readonly ready: Promise<void>;
 }
@@ -23,8 +25,15 @@ export function activate(context: vscode.ExtensionContext): PlotPanelApi {
   const history = new PlotHistory(configuration().get('historyLimit', 50));
   const capture = new PlotCapture(history, () => configuration().get('followLatest', true));
   const thumbnails = new ThumbnailCache();
+  const display = new DisplayOptions(context.globalState);
   const registry = new SessionRegistry(history);
-  const provider = new PlotsViewProvider(context.extensionUri, history, thumbnails, registry);
+  const provider = new PlotsViewProvider(
+    context.extensionUri,
+    history,
+    thumbnails,
+    display,
+    registry,
+  );
   const store = new PlotStore(vscode.Uri.joinPath(context.globalStorageUri, 'plots'));
 
   context.subscriptions.push(
@@ -78,9 +87,9 @@ export function activate(context: vscode.ExtensionContext): PlotPanelApi {
     // load() and attach() are already defensive; never fail activation.
   });
 
-  registerCommands(context, history, provider);
+  registerCommands(context, history, provider, display);
 
-  return { history, capture, ready };
+  return { history, capture, display, ready };
 }
 
 export function deactivate(): void {}

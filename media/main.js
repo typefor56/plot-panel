@@ -24,6 +24,30 @@
   let selectedId = undefined;
   /** @type {'gallery' | 'single'} 'single' pins one entry: no strip, no navigation. */
   let sessionMode = 'gallery';
+  /** Host-owned display mode; the webview only projects it. */
+  let displayMode = 'fit';
+
+  const ZOOM_FACTORS = { 'zoom-50': 0.5, 'zoom-75': 0.75, 'zoom-200': 2 };
+
+  /** Apply the explicit pixel width required by zoom presets (CSS covers the rest). */
+  function sizeFigure() {
+    figure.style.width = '';
+    const factor = ZOOM_FACTORS[displayMode];
+    if (factor !== undefined && figure.naturalWidth > 0) {
+      // naturalWidth is 0 for dimensionless SVG: leave it unsized, the 'fit'
+      // rules in CSS are the fallback.
+      figure.style.width = Math.round(figure.naturalWidth * factor) + 'px';
+    }
+  }
+
+  function applyDisplay(display) {
+    displayMode = display.mode;
+    document.body.dataset.displayMode = display.mode;
+    document.body.classList.toggle('dark-filter', display.darkFilter === true);
+    sizeFigure();
+  }
+
+  figure.addEventListener('load', sizeFigure);
   /** @type {Set<string>} ids whose full image has been requested */
   const requested = new Set();
 
@@ -228,6 +252,7 @@
     switch (message.type) {
       case 'state':
         sessionMode = message.sessionMode === 'single' ? 'single' : 'gallery';
+        applyDisplay(message.display);
         entries = message.entries.slice();
         selectedId = message.selectedId;
         requested.clear();
@@ -271,6 +296,9 @@
         break;
       case 'notice':
         renderNotice(message.text);
+        break;
+      case 'display':
+        applyDisplay(message.display);
         break;
       case 'image': {
         const entry = findEntry(message.id);

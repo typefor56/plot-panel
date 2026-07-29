@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import * as vscode from 'vscode';
+import type { DisplayMode, DisplayOptions } from './displayOptions';
 import type { HistoryEvent, PlotHistory } from './history';
 import type { ThumbnailCache } from './thumbnails';
 import type { PlotEntry } from './types';
@@ -48,6 +49,11 @@ interface WebviewEntry {
   readonly dataUri?: string;
 }
 
+interface DisplayState {
+  readonly mode: DisplayMode;
+  readonly darkFilter: boolean;
+}
+
 type ToWebviewMessage =
   | {
       readonly type: 'state';
@@ -55,7 +61,9 @@ type ToWebviewMessage =
       readonly selectedId: string | undefined;
       readonly notice: string | undefined;
       readonly sessionMode: SessionMode;
+      readonly display: DisplayState;
     }
+  | { readonly type: 'display'; readonly display: DisplayState }
   | { readonly type: 'added'; readonly entry: WebviewEntry }
   | { readonly type: 'evicted'; readonly ids: readonly string[] }
   | { readonly type: 'selected'; readonly id: string | undefined }
@@ -106,6 +114,7 @@ export class PlotWebviewSession implements vscode.Disposable {
     private readonly extensionUri: vscode.Uri,
     private readonly history: PlotHistory,
     private readonly thumbnails: ThumbnailCache,
+    private readonly display: DisplayOptions,
     private readonly host: SessionHost,
     private readonly options: SessionOptions,
   ) {
@@ -119,6 +128,14 @@ export class PlotWebviewSession implements vscode.Disposable {
     );
     const unsubscribe = this.history.onDidChange((event) => this.onHistoryEvent(event));
     this.disposables.push(new vscode.Disposable(unsubscribe));
+    const unsubscribeDisplay = this.display.onDidChange(() =>
+      this.post({ type: 'display', display: this.displayState() }),
+    );
+    this.disposables.push(new vscode.Disposable(unsubscribeDisplay));
+  }
+
+  private displayState(): DisplayState {
+    return { mode: this.display.mode, darkFilter: this.display.darkFilter };
   }
 
   get mode(): SessionMode {
@@ -227,6 +244,7 @@ export class PlotWebviewSession implements vscode.Disposable {
         selectedId: pinned?.id,
         notice: pinned === undefined ? 'This plot was removed from the history.' : undefined,
         sessionMode: 'single',
+        display: this.displayState(),
       });
       return;
     }
@@ -239,6 +257,7 @@ export class PlotWebviewSession implements vscode.Disposable {
       selectedId,
       notice: this.host.notice,
       sessionMode: 'gallery',
+      display: this.displayState(),
     });
   }
 
