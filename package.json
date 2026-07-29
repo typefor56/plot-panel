@@ -33,7 +33,7 @@
         {
           "type": "webview",
           "id": "plotPanel.variables",
-          "name": "Jupyter Variables",
+          "name": "Variables",
           "icon": "media/icon.svg"
         },
         {
@@ -188,9 +188,39 @@
       },
       {
         "command": "plotPanel.refreshVariables",
-        "title": "Refresh Jupyter Variables",
+        "title": "Refresh Variables",
         "category": "Plot Panel",
         "icon": "$(refresh)"
+      },
+      {
+        "command": "plotPanel.variablesGroupByKind",
+        "title": "Group Variables by Kind",
+        "shortTitle": "Kind",
+        "category": "Plot Panel"
+      },
+      {
+        "command": "plotPanel.variablesGroupBySize",
+        "title": "Group Variables by Size",
+        "shortTitle": "Size",
+        "category": "Plot Panel"
+      },
+      {
+        "command": "plotPanel.variablesSortByName",
+        "title": "Sort Variables by Name",
+        "shortTitle": "Name",
+        "category": "Plot Panel"
+      },
+      {
+        "command": "plotPanel.variablesSortBySize",
+        "title": "Sort Variables by Size",
+        "shortTitle": "Size",
+        "category": "Plot Panel"
+      },
+      {
+        "command": "plotPanel.variablesSortByRecent",
+        "title": "Sort Variables by Recently Changed",
+        "shortTitle": "Recent",
+        "category": "Plot Panel"
       }
     ],
     "submenus": [
@@ -213,6 +243,16 @@
         "id": "plotPanel.codeMenu",
         "label": "Plot Code",
         "icon": "$(code)"
+      },
+      {
+        "id": "plotPanel.variablesGroupMenu",
+        "label": "Group Variables By",
+        "icon": "$(group-by-ref-type)"
+      },
+      {
+        "id": "plotPanel.variablesSortMenu",
+        "label": "Sort Variables By",
+        "icon": "$(sort-precedence)"
       }
     ],
     "menus": {
@@ -261,9 +301,19 @@
           "when": "view == plotPanel.plots"
         },
         {
-          "command": "plotPanel.refreshVariables",
+          "submenu": "plotPanel.variablesGroupMenu",
           "when": "view == plotPanel.variables",
           "group": "navigation@1"
+        },
+        {
+          "submenu": "plotPanel.variablesSortMenu",
+          "when": "view == plotPanel.variables",
+          "group": "navigation@2"
+        },
+        {
+          "command": "plotPanel.refreshVariables",
+          "when": "view == plotPanel.variables",
+          "group": "navigation@3"
         }
       ],
       "editor/title": [
@@ -357,6 +407,30 @@
           "group": "1_sizing@4"
         }
       ],
+      "plotPanel.variablesGroupMenu": [
+        {
+          "command": "plotPanel.variablesGroupByKind",
+          "group": "1_group@1"
+        },
+        {
+          "command": "plotPanel.variablesGroupBySize",
+          "group": "1_group@2"
+        }
+      ],
+      "plotPanel.variablesSortMenu": [
+        {
+          "command": "plotPanel.variablesSortByName",
+          "group": "1_sort@1"
+        },
+        {
+          "command": "plotPanel.variablesSortBySize",
+          "group": "1_sort@2"
+        },
+        {
+          "command": "plotPanel.variablesSortByRecent",
+          "group": "1_sort@3"
+        }
+      ],
       "plotPanel.codeMenu": [
         {
           "command": "plotPanel.copyPlotCode",
@@ -429,7 +503,7 @@
         "plotPanel.variablesAutoRefresh": {
           "type": "boolean",
           "default": true,
-          "description": "Refresh the Jupyter Variables view automatically when a cell finishes executing. Refreshing asks the kernel to describe every variable, which can be noticeable with very large DataFrames; disable to refresh only with the button."
+          "description": "Refresh the Variables view automatically when a cell finishes executing. Refreshing asks the kernel to describe every variable, which can be noticeable with very large DataFrames; disable to refresh only with the button."
         }
       }
     }

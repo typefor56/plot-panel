@@ -10,6 +10,7 @@ import { PlotsViewProvider } from './plotsView';
 import { SessionRegistry } from './sessionRegistry';
 import { ThumbnailCache } from './thumbnails';
 import { JupyterVariablesSource } from './variables/jupyterApi';
+import { VariablesOptions } from './variables/variablesOptions';
 import { VariablesViewProvider } from './variables/variablesView';
 
 /** Public surface returned by activate(), used by the extension-host tests. */
@@ -17,7 +18,8 @@ export interface PlotPanelApi {
   readonly history: PlotHistory;
   readonly capture: PlotCapture;
   readonly display: DisplayOptions;
-  /** Refresh the Jupyter Variables view now; resolves when the fetch completed. */
+  readonly variablesOptions: VariablesOptions;
+  /** Refresh the Variables view now; resolves when the fetch completed. */
   readonly refreshVariables: () => Promise<void>;
   /** Resolves once the persisted history has been restored and the store attached. */
   readonly ready: Promise<void>;
@@ -49,7 +51,12 @@ export function activate(context: vscode.ExtensionContext): PlotPanelApi {
     context.extensionMode === vscode.ExtensionMode.Test ||
       vscode.env.appName.includes('Insiders'),
   );
-  const variables = new VariablesViewProvider(context.extensionUri, variablesSource);
+  const variablesOptions = new VariablesOptions(context.globalState);
+  const variables = new VariablesViewProvider(
+    context.extensionUri,
+    variablesSource,
+    variablesOptions,
+  );
 
   context.subscriptions.push(
     capture,
@@ -61,6 +68,21 @@ export function activate(context: vscode.ExtensionContext): PlotPanelApi {
     variables,
     vscode.window.registerWebviewViewProvider(VariablesViewProvider.viewType, variables),
     vscode.commands.registerCommand('plotPanel.refreshVariables', () => variables.refresh()),
+    vscode.commands.registerCommand('plotPanel.variablesGroupByKind', () =>
+      variablesOptions.setGrouping('kind'),
+    ),
+    vscode.commands.registerCommand('plotPanel.variablesGroupBySize', () =>
+      variablesOptions.setGrouping('size'),
+    ),
+    vscode.commands.registerCommand('plotPanel.variablesSortByName', () =>
+      variablesOptions.setSorting('name'),
+    ),
+    vscode.commands.registerCommand('plotPanel.variablesSortBySize', () =>
+      variablesOptions.setSorting('size'),
+    ),
+    vscode.commands.registerCommand('plotPanel.variablesSortByRecent', () =>
+      variablesOptions.setSorting('recent'),
+    ),
     vscode.window.registerWebviewViewProvider(PlotsViewProvider.viewType, provider),
     capture.onUnsupportedOutput((mime, source) => {
       registry.broadcastNotice(
@@ -110,7 +132,14 @@ export function activate(context: vscode.ExtensionContext): PlotPanelApi {
 
   registerCommands(context, history, provider, display, panels);
 
-  return { history, capture, display, refreshVariables: () => variables.refresh(), ready };
+  return {
+    history,
+    capture,
+    display,
+    variablesOptions,
+    refreshVariables: () => variables.refresh(),
+    ready,
+  };
 }
 
 export function deactivate(): void {}

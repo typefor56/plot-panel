@@ -10,6 +10,7 @@ import {
 import type { ChildVariable } from './inspect';
 import type { JupyterVariablesSource, KernelVariable } from './jupyterApi';
 import { parseDataFrameSummary } from './summary';
+import type { VariablesOptions } from './variablesOptions';
 
 /**
  * The Jupyter Variables webview view: kernel variables grouped into
@@ -122,8 +123,12 @@ export class VariablesViewProvider implements vscode.WebviewViewProvider, vscode
   constructor(
     private readonly extensionUri: vscode.Uri,
     private readonly source: JupyterVariablesSource,
+    private readonly options: VariablesOptions,
   ) {
     this.target = vscode.window.activeNotebookEditor?.notebook;
+    // Grouping/sorting changes re-project the cache; the kernel is not asked.
+    const unsubscribeOptions = this.options.onDidChange(() => this.renderFromCache());
+    this.disposables.push({ dispose: unsubscribeOptions });
     this.disposables.push(
       vscode.window.onDidChangeActiveNotebookEditor((editor) => {
         if (editor !== undefined && editor.notebook !== this.target) {
@@ -255,7 +260,11 @@ export class VariablesViewProvider implements vscode.WebviewViewProvider, vscode
     if (this.view === undefined) {
       return;
     }
-    const sections = organizeVariables(this.decorated, 'kind', 'name').map((section) => ({
+    const sections = organizeVariables(
+      this.decorated,
+      this.options.grouping,
+      this.options.sorting,
+    ).map((section) => ({
       label: section.label,
       rows: section.rows.map((decorated) => decorated.row),
     }));

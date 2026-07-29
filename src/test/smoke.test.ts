@@ -39,6 +39,11 @@ suite('Smoke', () => {
       'plotPanel.revealPlotCode',
       'plotPanel.rerunPlotCode',
       'plotPanel.refreshVariables',
+      'plotPanel.variablesGroupByKind',
+      'plotPanel.variablesGroupBySize',
+      'plotPanel.variablesSortByName',
+      'plotPanel.variablesSortBySize',
+      'plotPanel.variablesSortByRecent',
     ]) {
       assert.ok(commands.includes(id), `command ${id} is not registered`);
     }
