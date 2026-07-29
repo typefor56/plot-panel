@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import * as vscode from 'vscode';
 import {
+  dataViewerType,
   formatVariableValue,
   organizeVariables,
   typeHint,
@@ -92,7 +93,31 @@ type ToVariablesWebviewMessage =
 type FromVariablesWebviewMessage =
   | { readonly type: 'ready' }
   | { readonly type: 'refresh' }
-  | { readonly type: 'expand'; readonly requestId: number; readonly expression: string };
+  | { readonly type: 'expand'; readonly requestId: number; readonly expression: string }
+  | { readonly type: 'openViewer'; readonly expression: string; readonly viewerType: string };
+
+/**
+ * The exact argument shape jupyter.showDataViewer forwards, untouched, to
+ * the contributed viewer (Data Wrangler). Verified by decompilation of
+ * Jupyter 2026.6 / Data Wrangler 1.24.2: the viewer only reads name (an
+ * identifier or any Python expression — it evaluates it in the kernel
+ * itself), type (must be an exact dataTypes member), fileName (Uri of an
+ * OPEN notebook, matched by path) and fullType (error text only). frameId
+ * or a `variable` key must never be present: they reroute the request down
+ * the debugger paths.
+ */
+interface DataViewerRequest {
+  readonly name: string;
+  readonly type: string;
+  readonly fileName: vscode.Uri;
+  readonly value: undefined;
+  readonly fullType: undefined;
+  readonly supportsDataExplorer: true;
+  readonly size: 0;
+  readonly shape: '';
+  readonly count: 0;
+  readonly truncated: true;
+}
 
 const REFRESH_DEBOUNCE_MS = 500;
 const VALUE_CAP = 80;
@@ -109,7 +134,7 @@ function childRow(child: ChildVariable): VariableRow {
     expandable: child.hasChildren,
     expression: child.expression,
     kind: 'variable',
-    viewerType: undefined,
+    viewerType: dataViewerType(child.type),
   };
 }
 
@@ -369,7 +394,7 @@ export class VariablesViewProvider implements vscode.WebviewViewProvider, vscode
         expandable,
         expression: variable.expression,
         kind: 'variable',
-        viewerType: undefined,
+        viewerType: dataViewerType(variable.type),
       },
     };
   }
@@ -412,7 +437,9 @@ export class VariablesViewProvider implements vscode.WebviewViewProvider, vscode
           expandable,
           expression,
           kind: 'variable',
-          viewerType: undefined,
+          // A DataFrame column evaluates to a Series; the viewer accepts
+          // the expression as its name and resolves it in the kernel.
+          viewerType: 'Series',
         };
       });
       this.fallbackChildren.set(variable.expression, columnRows);
@@ -478,6 +505,38 @@ export class VariablesViewProvider implements vscode.WebviewViewProvider, vscode
       case 'expand':
         this.expand(message.requestId, message.expression);
         break;
+      case 'openViewer':
+        void this.openViewer(message.expression, message.viewerType);
+        break;
+    }
+  }
+
+  private async openViewer(expression: string, viewerType: string): Promise<void> {
+    const target = this.target;
+    if (target === undefined) {
+      void vscode.window.showErrorMessage(
+        'Plot Panel: no active notebook to open the data viewer for.',
+      );
+      return;
+    }
+    const request: DataViewerRequest = {
+      name: expression,
+      type: viewerType,
+      fileName: target.uri,
+      value: undefined,
+      fullType: undefined,
+      supportsDataExplorer: true,
+      size: 0,
+      shape: '',
+      count: 0,
+      truncated: true,
+    };
+    try {
+      await vscode.commands.executeCommand('jupyter.showDataViewer', request);
+    } catch {
+      void vscode.window.showErrorMessage(
+        'Plot Panel: could not open the data viewer — is a Jupyter kernel running for this notebook?',
+      );
     }
   }
 

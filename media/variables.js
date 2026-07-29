@@ -33,6 +33,40 @@
     return note;
   }
 
+  /** Small table/grid glyph, built via DOM APIs (no icon font, no CSP need). */
+  function makeGridIcon() {
+    const ns = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(ns, 'svg');
+    svg.setAttribute('viewBox', '0 0 16 16');
+    svg.setAttribute('width', '14');
+    svg.setAttribute('height', '14');
+    svg.setAttribute('aria-hidden', 'true');
+    svg.setAttribute('fill', 'none');
+    svg.setAttribute('stroke', 'currentColor');
+    const rect = document.createElementNS(ns, 'rect');
+    rect.setAttribute('x', '1.5');
+    rect.setAttribute('y', '2.5');
+    rect.setAttribute('width', '13');
+    rect.setAttribute('height', '11');
+    rect.setAttribute('rx', '1');
+    svg.appendChild(rect);
+    const segments = [
+      ['1.5', '6', '14.5', '6'],
+      ['1.5', '9.75', '14.5', '9.75'],
+      ['6', '6', '6', '13.5'],
+      ['10.25', '6', '10.25', '13.5'],
+    ];
+    for (const [x1, y1, x2, y2] of segments) {
+      const line = document.createElementNS(ns, 'line');
+      line.setAttribute('x1', x1);
+      line.setAttribute('y1', y1);
+      line.setAttribute('x2', x2);
+      line.setAttribute('y2', y2);
+      svg.appendChild(line);
+    }
+    return svg;
+  }
+
   function makeRow(row, level) {
     const container = document.createElement('div');
     container.className = 'var-item';
@@ -68,6 +102,24 @@
     value.textContent = row.value;
     value.title = row.value;
     line.appendChild(value);
+
+    if (typeof row.viewerType === 'string' && row.viewerType.length > 0) {
+      const viewer = document.createElement('button');
+      viewer.className = 'viewer-button';
+      viewer.title = 'Open in Data Viewer';
+      viewer.setAttribute('aria-label', 'Open ' + row.name + ' in Data Viewer');
+      viewer.appendChild(makeGridIcon());
+      viewer.addEventListener('click', (event) => {
+        // Never toggle the row expansion from the viewer button.
+        event.stopPropagation();
+        vscode.postMessage({
+          type: 'openViewer',
+          expression: row.expression,
+          viewerType: row.viewerType,
+        });
+      });
+      line.appendChild(viewer);
+    }
 
     const hint = document.createElement('span');
     hint.className = 'var-hint';

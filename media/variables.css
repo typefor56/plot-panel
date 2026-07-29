@@ -129,6 +129,29 @@ body.busy #list {
   color: var(--vscode-descriptionForeground);
 }
 
+.viewer-button {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 2px;
+  margin: 0;
+  background: transparent;
+  border: none;
+  color: inherit;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.var-row:hover .viewer-button,
+.viewer-button:focus-visible {
+  opacity: 0.9;
+}
+
+.viewer-button:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: 1px;
+}
+
 .var-row.var-ellipsis {
   justify-content: center;
   color: var(--vscode-descriptionForeground);
