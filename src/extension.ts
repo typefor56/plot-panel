@@ -75,7 +75,7 @@ export function activate(context: vscode.ExtensionContext): PlotPanelApi {
     // load() and attach() are already defensive; never fail activation.
   });
 
-  registerCommands(context, history);
+  registerCommands(context, history, provider);
 
   return { history, capture, ready };
 }

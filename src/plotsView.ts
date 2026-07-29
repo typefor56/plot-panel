@@ -41,14 +41,26 @@ type ToWebviewMessage =
   | { readonly type: 'selected'; readonly id: string | undefined }
   | { readonly type: 'cleared' }
   | { readonly type: 'notice'; readonly text: string }
-  | { readonly type: 'image'; readonly id: string; readonly dataUri: string };
+  | { readonly type: 'image'; readonly id: string; readonly dataUri: string }
+  | {
+      readonly type: 'copy';
+      readonly id: string;
+      readonly mime: string;
+      readonly dataUri: string;
+    };
 
 type FromWebviewMessage =
   | { readonly type: 'ready' }
   | { readonly type: 'select'; readonly id: string }
   | { readonly type: 'nav'; readonly direction: 'previous' | 'next' }
   | { readonly type: 'requestImage'; readonly id: string }
-  | { readonly type: 'thumbnail'; readonly id: string; readonly dataUri: string };
+  | { readonly type: 'thumbnail'; readonly id: string; readonly dataUri: string }
+  | { readonly type: 'copyResult'; readonly ok: boolean; readonly error?: string };
+
+interface CopyResult {
+  readonly ok: boolean;
+  readonly error?: string;
+}
 
 function toDataUri(mime: string, data: Uint8Array): string {
   return `data:${mime};base64,${Buffer.from(data).toString('base64')}`;
@@ -61,6 +73,8 @@ export class PlotsViewProvider implements vscode.WebviewViewProvider, vscode.Dis
 
   private view: vscode.WebviewView | undefined;
   private notice: string | undefined;
+  private webviewReady = false;
+  private pendingCopy: ((result: CopyResult) => void) | undefined;
   private readonly disposables: vscode.Disposable[] = [];
 
   constructor(
@@ -74,6 +88,7 @@ export class PlotsViewProvider implements vscode.WebviewViewProvider, vscode.Dis
 
   resolveWebviewView(view: vscode.WebviewView): void {
     this.view = view;
+    this.webviewReady = false;
     view.webview.options = {
       enableScripts: true,
       localResourceRoots: [vscode.Uri.joinPath(this.extensionUri, 'media')],
@@ -85,6 +100,7 @@ export class PlotsViewProvider implements vscode.WebviewViewProvider, vscode.Dis
     view.onDidDispose(() => {
       if (this.view === view) {
         this.view = undefined;
+        this.webviewReady = false;
       }
     });
   }
@@ -104,6 +120,62 @@ export class PlotsViewProvider implements vscode.WebviewViewProvider, vscode.Dis
   showNotice(text: string): void {
     this.notice = text;
     this.post({ type: 'notice', text });
+  }
+
+  /**
+   * Copy the selected figure to the clipboard as PNG. The stable extension
+   * API (vscode.env.clipboard) is text-only, so the write happens in the
+   * webview via navigator.clipboard; the view is focused first because the
+   * browser clipboard requires a focused document.
+   */
+  async copySelected(): Promise<void> {
+    const entry = this.history.selected;
+    if (entry === undefined) {
+      void vscode.window.showInformationMessage('Plot Panel: no plot to copy.');
+      return;
+    }
+    if (this.view === undefined) {
+      await vscode.commands.executeCommand(`${PlotsViewProvider.viewType}.focus`);
+    } else {
+      this.view.show(false);
+    }
+    if (!(await this.waitForWebview())) {
+      void vscode.window.showErrorMessage('Plot Panel: the Plots view did not become ready.');
+      return;
+    }
+    const result = await new Promise<CopyResult>((resolve) => {
+      this.pendingCopy = resolve;
+      this.post({
+        type: 'copy',
+        id: entry.id,
+        mime: entry.mime,
+        dataUri: toDataUri(entry.mime, entry.data),
+      });
+      setTimeout(() => {
+        if (this.pendingCopy === resolve) {
+          this.pendingCopy = undefined;
+          resolve({ ok: false, error: 'timed out' });
+        }
+      }, 5000);
+    });
+    if (result.ok) {
+      vscode.window.setStatusBarMessage('Plot copied to clipboard', 3000);
+    } else {
+      void vscode.window.showErrorMessage(
+        `Plot Panel: copy failed: ${result.error ?? 'unknown error'}`,
+      );
+    }
+  }
+
+  private async waitForWebview(): Promise<boolean> {
+    const deadline = Date.now() + 3000;
+    while (!this.webviewReady) {
+      if (Date.now() > deadline) {
+        return false;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    return true;
   }
 
   private toWebviewEntry(entry: PlotEntry, includeData: boolean): WebviewEntry {
@@ -150,6 +222,7 @@ export class PlotsViewProvider implements vscode.WebviewViewProvider, vscode.Dis
   private onMessage(message: FromWebviewMessage): void {
     switch (message.type) {
       case 'ready': {
+        this.webviewReady = true;
         const selectedId = this.history.selected?.id;
         this.post({
           type: 'state',
@@ -195,6 +268,12 @@ export class PlotsViewProvider implements vscode.WebviewViewProvider, vscode.Dis
           message.id,
           Buffer.from(message.dataUri.slice(THUMBNAIL_URI_PREFIX.length), 'base64'),
         );
+        break;
+      }
+      case 'copyResult': {
+        const pending = this.pendingCopy;
+        this.pendingCopy = undefined;
+        pending?.(message.error === undefined ? { ok: message.ok } : message);
         break;
       }
     }

@@ -164,6 +164,57 @@
     }
   }
 
+  function dataUriToBlob(dataUri) {
+    const comma = dataUri.indexOf(',');
+    const meta = dataUri.slice(0, comma);
+    const mime = meta.slice(5, meta.indexOf(';'));
+    const binary = atob(dataUri.slice(comma + 1));
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return new Blob([bytes], { type: mime });
+  }
+
+  function rasterizeToPng(dataUri) {
+    return new Promise((resolve, reject) => {
+      const image = new Image();
+      image.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, image.width);
+        canvas.height = Math.max(1, image.height);
+        const context = canvas.getContext('2d');
+        if (context === null) {
+          reject(new Error('canvas 2d context unavailable'));
+          return;
+        }
+        context.drawImage(image, 0, 0);
+        canvas.toBlob((blob) => {
+          if (blob === null) {
+            reject(new Error('PNG encoding failed'));
+          } else {
+            resolve(blob);
+          }
+        }, 'image/png');
+      };
+      image.onerror = () => reject(new Error('image decoding failed'));
+      image.src = dataUri;
+    });
+  }
+
+  async function handleCopy(message) {
+    try {
+      const blob =
+        message.mime === 'image/png'
+          ? dataUriToBlob(message.dataUri)
+          : await rasterizeToPng(message.dataUri);
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+      vscode.postMessage({ type: 'copyResult', ok: true });
+    } catch (error) {
+      vscode.postMessage({ type: 'copyResult', ok: false, error: String(error) });
+    }
+  }
+
   window.addEventListener('message', (event) => {
     const message = event.data;
     switch (message.type) {
@@ -212,6 +263,9 @@
         }
         break;
       }
+      case 'copy':
+        void handleCopy(message);
+        break;
     }
   });
 

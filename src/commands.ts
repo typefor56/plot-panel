@@ -2,6 +2,7 @@ import * as os from 'node:os';
 import * as vscode from 'vscode';
 import type { PlotHistory } from './history';
 import { extensionForMime } from './mime';
+import type { PlotsViewProvider } from './plotsView';
 import type { PlotEntry } from './types';
 
 function defaultSaveUri(entry: PlotEntry): vscode.Uri {
@@ -37,14 +38,43 @@ async function savePlot(history: PlotHistory): Promise<void> {
   await vscode.workspace.fs.writeFile(target, entry.data);
 }
 
+async function exportAll(history: PlotHistory): Promise<void> {
+  if (history.entries.length === 0) {
+    void vscode.window.showInformationMessage('Plot Panel: the history is empty.');
+    return;
+  }
+  const folders = await vscode.window.showOpenDialog({
+    canSelectFolders: true,
+    canSelectFiles: false,
+    canSelectMany: false,
+    openLabel: 'Export Plots',
+  });
+  const folder = folders?.[0];
+  if (folder === undefined) {
+    return;
+  }
+  let count = 0;
+  for (const entry of history.entries) {
+    count += 1;
+    const name = `plot_${String(count).padStart(3, '0')}.${extensionForMime(entry.mime)}`;
+    await vscode.workspace.fs.writeFile(vscode.Uri.joinPath(folder, name), entry.data);
+  }
+  void vscode.window.showInformationMessage(
+    `Plot Panel: exported ${count} plot${count === 1 ? '' : 's'} to ${folder.fsPath}.`,
+  );
+}
+
 export function registerCommands(
   context: vscode.ExtensionContext,
   history: PlotHistory,
+  provider: PlotsViewProvider,
 ): void {
   context.subscriptions.push(
     vscode.commands.registerCommand('plotPanel.previousPlot', () => history.previous()),
     vscode.commands.registerCommand('plotPanel.nextPlot', () => history.next()),
     vscode.commands.registerCommand('plotPanel.clearHistory', () => history.clear()),
     vscode.commands.registerCommand('plotPanel.savePlot', () => savePlot(history)),
+    vscode.commands.registerCommand('plotPanel.copyPlot', () => provider.copySelected()),
+    vscode.commands.registerCommand('plotPanel.exportAll', () => exportAll(history)),
   );
 }

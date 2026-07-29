@@ -8,4 +8,21 @@ suite('Smoke', () => {
     await extension.activate();
     assert.strictEqual(extension.isActive, true);
   });
+
+  test('all contributed commands are registered', async () => {
+    const extension = vscode.extensions.getExtension('for56.plot-panel');
+    assert.ok(extension);
+    await extension.activate();
+    const commands = await vscode.commands.getCommands(true);
+    for (const id of [
+      'plotPanel.previousPlot',
+      'plotPanel.nextPlot',
+      'plotPanel.savePlot',
+      'plotPanel.copyPlot',
+      'plotPanel.exportAll',
+      'plotPanel.clearHistory',
+    ]) {
+      assert.ok(commands.includes(id), `command ${id} is not registered`);
+    }
+  });
 });
