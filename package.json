@@ -61,7 +61,7 @@
         "command": "plotPanel.clearHistory",
         "title": "Clear Plot History",
         "category": "Plot Panel",
-        "icon": "$(clear-all)"
+        "icon": "$(trash)"
       },
       {
         "command": "plotPanel.copyPlot",
@@ -128,6 +128,53 @@
         "title": "Toggle Dark Filter on Plots",
         "category": "Plot Panel",
         "icon": "$(color-mode)"
+      },
+      {
+        "command": "plotPanel.openPlotInEditor",
+        "title": "Open Plot in Editor Tab",
+        "shortTitle": "Editor Tab",
+        "category": "Plot Panel"
+      },
+      {
+        "command": "plotPanel.openPlotBeside",
+        "title": "Open Plot in Editor Tab to the Side",
+        "shortTitle": "Editor Tab to the Side",
+        "category": "Plot Panel"
+      },
+      {
+        "command": "plotPanel.openPlotInNewWindow",
+        "title": "Open Plot in New Window",
+        "shortTitle": "New Window",
+        "category": "Plot Panel"
+      },
+      {
+        "command": "plotPanel.openGallery",
+        "title": "Open Plots Gallery in Editor Tab",
+        "shortTitle": "Plots Gallery in Editor Tab",
+        "category": "Plot Panel"
+      },
+      {
+        "command": "plotPanel.openGalleryInNewWindow",
+        "title": "Open Plots Gallery in New Window",
+        "shortTitle": "Plots Gallery in New Window",
+        "category": "Plot Panel"
+      }
+    ],
+    "submenus": [
+      {
+        "id": "plotPanel.zoomMenu",
+        "label": "Zoom",
+        "icon": "$(zoom-in)"
+      },
+      {
+        "id": "plotPanel.openMenu",
+        "label": "Open Plot In",
+        "icon": "$(link-external)"
+      },
+      {
+        "id": "plotPanel.sizingMenu",
+        "label": "Sizing Policy",
+        "icon": "$(screen-full)"
       }
     ],
     "menus": {
@@ -148,17 +195,140 @@
           "group": "navigation@3"
         },
         {
-          "command": "plotPanel.clearHistory",
-          "when": "view == plotPanel.plots"
-        },
-        {
           "command": "plotPanel.copyPlot",
           "when": "view == plotPanel.plots",
           "group": "navigation@4"
         },
         {
+          "submenu": "plotPanel.zoomMenu",
+          "when": "view == plotPanel.plots",
+          "group": "navigation@5"
+        },
+        {
+          "submenu": "plotPanel.openMenu",
+          "when": "view == plotPanel.plots",
+          "group": "navigation@6"
+        },
+        {
+          "command": "plotPanel.clearHistory",
+          "when": "view == plotPanel.plots",
+          "group": "navigation@7"
+        },
+        {
           "command": "plotPanel.exportAll",
           "when": "view == plotPanel.plots"
+        },
+        {
+          "command": "plotPanel.toggleDarkFilter",
+          "when": "view == plotPanel.plots"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "plotPanel.previousPlot",
+          "when": "activeWebviewPanelId == plotPanel.gallery",
+          "group": "navigation@1"
+        },
+        {
+          "command": "plotPanel.nextPlot",
+          "when": "activeWebviewPanelId == plotPanel.gallery",
+          "group": "navigation@2"
+        },
+        {
+          "command": "plotPanel.savePlot",
+          "when": "activeWebviewPanelId == plotPanel.gallery || activeWebviewPanelId == plotPanel.plot",
+          "group": "navigation@3"
+        },
+        {
+          "command": "plotPanel.copyPlot",
+          "when": "activeWebviewPanelId == plotPanel.gallery || activeWebviewPanelId == plotPanel.plot",
+          "group": "navigation@4"
+        },
+        {
+          "submenu": "plotPanel.zoomMenu",
+          "when": "activeWebviewPanelId == plotPanel.gallery || activeWebviewPanelId == plotPanel.plot",
+          "group": "navigation@5"
+        },
+        {
+          "submenu": "plotPanel.sizingMenu",
+          "when": "activeWebviewPanelId == plotPanel.gallery || activeWebviewPanelId == plotPanel.plot",
+          "group": "navigation@6"
+        },
+        {
+          "command": "plotPanel.toggleDarkFilter",
+          "when": "activeWebviewPanelId == plotPanel.gallery || activeWebviewPanelId == plotPanel.plot",
+          "group": "navigation@7"
+        },
+        {
+          "command": "plotPanel.clearHistory",
+          "when": "activeWebviewPanelId == plotPanel.gallery",
+          "group": "navigation@9"
+        },
+        {
+          "command": "plotPanel.exportAll",
+          "when": "activeWebviewPanelId == plotPanel.gallery"
+        }
+      ],
+      "plotPanel.zoomMenu": [
+        {
+          "command": "plotPanel.zoomFit",
+          "group": "1_zoom@1"
+        },
+        {
+          "command": "plotPanel.zoomFifty",
+          "group": "1_zoom@2"
+        },
+        {
+          "command": "plotPanel.zoomSeventyFive",
+          "group": "1_zoom@3"
+        },
+        {
+          "command": "plotPanel.zoomOneHundred",
+          "group": "1_zoom@4"
+        },
+        {
+          "command": "plotPanel.zoomTwoHundred",
+          "group": "1_zoom@5"
+        }
+      ],
+      "plotPanel.sizingMenu": [
+        {
+          "command": "plotPanel.zoomFit",
+          "group": "1_sizing@1"
+        },
+        {
+          "command": "plotPanel.sizeFillWidth",
+          "group": "1_sizing@2"
+        },
+        {
+          "command": "plotPanel.sizeFillHeight",
+          "group": "1_sizing@3"
+        },
+        {
+          "command": "plotPanel.sizeActual",
+          "group": "1_sizing@4"
+        }
+      ],
+      "plotPanel.openMenu": [
+        {
+          "command": "plotPanel.openPlotInEditor",
+          "group": "1_plot@1"
+        },
+        {
+          "command": "plotPanel.openPlotBeside",
+          "group": "1_plot@2"
+        },
+        {
+          "command": "plotPanel.openPlotInNewWindow",
+          "group": "1_plot@3"
+        },
+        {
+          "command": "plotPanel.openGallery",
+          "group": "2_gallery@1"
+        },
+        {
+          "command": "plotPanel.openGalleryInNewWindow",
+          "group": "2_gallery@2"
         }
       ]
     },

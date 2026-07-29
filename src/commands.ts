@@ -1,6 +1,7 @@
 import * as os from 'node:os';
 import * as vscode from 'vscode';
 import type { DisplayOptions } from './displayOptions';
+import type { PanelManager } from './galleryPanel';
 import type { PlotHistory } from './history';
 import { extensionForMime } from './mime';
 import type { PlotsViewProvider } from './plotsView';
@@ -21,8 +22,7 @@ function saveFilters(entry: PlotEntry): Record<string, string[]> {
   return { Image: [extension] };
 }
 
-async function savePlot(history: PlotHistory): Promise<void> {
-  const entry = history.selected;
+async function savePlot(entry: PlotEntry | undefined): Promise<void> {
   if (entry === undefined) {
     void vscode.window.showInformationMessage('Plot Panel: no plot to save.');
     return;
@@ -70,14 +70,52 @@ export function registerCommands(
   history: PlotHistory,
   provider: PlotsViewProvider,
   display: DisplayOptions,
+  panels: PanelManager,
 ): void {
+  // Toolbar commands on a pinned single-plot panel act on that pin, not on
+  // the gallery selection (menus cannot pass arguments to commands).
+  const targetEntry = (): PlotEntry | undefined =>
+    panels.activePinnedEntry() ?? history.selected;
+  const requireTarget = (verb: string): PlotEntry | undefined => {
+    const entry = targetEntry();
+    if (entry === undefined) {
+      void vscode.window.showInformationMessage(`Plot Panel: no plot to ${verb}.`);
+    }
+    return entry;
+  };
   context.subscriptions.push(
     vscode.commands.registerCommand('plotPanel.previousPlot', () => history.previous()),
     vscode.commands.registerCommand('plotPanel.nextPlot', () => history.next()),
     vscode.commands.registerCommand('plotPanel.clearHistory', () => history.clear()),
-    vscode.commands.registerCommand('plotPanel.savePlot', () => savePlot(history)),
-    vscode.commands.registerCommand('plotPanel.copyPlot', () => provider.copySelected()),
+    vscode.commands.registerCommand('plotPanel.savePlot', () => savePlot(targetEntry())),
+    vscode.commands.registerCommand('plotPanel.copyPlot', async () => {
+      if (!(await panels.copyFromActivePanel())) {
+        await provider.copySelected();
+      }
+    }),
     vscode.commands.registerCommand('plotPanel.exportAll', () => exportAll(history)),
+    vscode.commands.registerCommand('plotPanel.openPlotInEditor', () => {
+      const entry = requireTarget('open');
+      if (entry !== undefined) {
+        panels.openSingle(entry, vscode.ViewColumn.Active);
+      }
+    }),
+    vscode.commands.registerCommand('plotPanel.openPlotBeside', () => {
+      const entry = requireTarget('open');
+      if (entry !== undefined) {
+        panels.openSingle(entry, vscode.ViewColumn.Beside);
+      }
+    }),
+    vscode.commands.registerCommand('plotPanel.openPlotInNewWindow', async () => {
+      const entry = requireTarget('open');
+      if (entry !== undefined) {
+        await panels.openSingleInNewWindow(entry);
+      }
+    }),
+    vscode.commands.registerCommand('plotPanel.openGallery', () => panels.openGallery()),
+    vscode.commands.registerCommand('plotPanel.openGalleryInNewWindow', () =>
+      panels.openGalleryInNewWindow(),
+    ),
     vscode.commands.registerCommand('plotPanel.zoomFit', () => display.setMode('fit')),
     vscode.commands.registerCommand('plotPanel.zoomFifty', () => display.setMode('zoom-50')),
     vscode.commands.registerCommand('plotPanel.zoomSeventyFive', () => display.setMode('zoom-75')),

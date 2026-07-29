@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { PlotCapture } from './capture';
 import { registerCommands } from './commands';
 import { DisplayOptions } from './displayOptions';
+import { PanelManager } from './galleryPanel';
 import { PlotHistory } from './history';
 import { PlotStore } from './persistence';
 import { PlotsViewProvider } from './plotsView';
@@ -35,11 +36,14 @@ export function activate(context: vscode.ExtensionContext): PlotPanelApi {
     registry,
   );
   const store = new PlotStore(vscode.Uri.joinPath(context.globalStorageUri, 'plots'));
+  const panels = new PanelManager(context.extensionUri, history, thumbnails, display, registry);
 
   context.subscriptions.push(
     capture,
     registry,
     provider,
+    panels,
+    panels.registerSerializers(),
     vscode.window.registerWebviewViewProvider(PlotsViewProvider.viewType, provider),
     capture.onUnsupportedOutput((mime, source) => {
       registry.broadcastNotice(
@@ -87,7 +91,7 @@ export function activate(context: vscode.ExtensionContext): PlotPanelApi {
     // load() and attach() are already defensive; never fail activation.
   });
 
-  registerCommands(context, history, provider, display);
+  registerCommands(context, history, provider, display, panels);
 
   return { history, capture, display, ready };
 }

@@ -258,6 +258,10 @@
         requested.clear();
         renderNotice(message.notice);
         renderStrip();
+        if (sessionMode === 'single' && selectedId !== undefined) {
+          // Lets a single-plot editor panel be revived after a window reload.
+          vscode.setState({ pinnedId: selectedId });
+        }
         break;
       case 'added':
         // Single sessions stay pinned; the host does not send this, but stay safe.

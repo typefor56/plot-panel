@@ -142,6 +142,10 @@ export class PlotWebviewSession implements vscode.Disposable {
     return this.options.mode;
   }
 
+  get pinnedId(): string | undefined {
+    return this.options.pinnedId;
+  }
+
   /** Register a callback for when the session is disposed (used by the registry). */
   onDidDispose(listener: () => void): void {
     this.disposeListeners.add(listener);
@@ -211,11 +215,14 @@ export class PlotWebviewSession implements vscode.Disposable {
   private onHistoryEvent(event: HistoryEvent): void {
     switch (event.type) {
       case 'added':
-        // A single session stays pinned: new captures are not its business.
         if (this.options.mode === 'gallery') {
           // Fresh captures ship with full data: the webview must display them
           // and derive the thumbnail.
           this.post({ type: 'added', entry: this.toWebviewEntry(event.entry, true) });
+        } else if (event.entry.id === this.options.pinnedId) {
+          // A revived single panel can hydrate before the persisted history
+          // is restored; re-send its state once the pinned entry appears.
+          this.sendState();
         }
         break;
       case 'evicted':
