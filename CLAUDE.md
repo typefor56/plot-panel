@@ -35,10 +35,13 @@ avec un périmètre Python uniquement.
 | `src/commands.ts` | Enregistrement de toutes les commandes ; sur un panneau épinglé actif, save/copy/code agissent sur le pin |
 | `src/persistence.ts` | `PlotStore` : fichiers image adressés par contenu + vignettes `<id>.thumb.png` + `index.json` dans `globalStorageUri`, écritures sérialisées et idempotentes |
 | `src/thumbnails.ts` | `ThumbnailCache` : vignettes PNG réduites partagées entre vue et persistance |
-| `src/variables/categorize.ts` | Catégorisation DATA/VALUES/FUNCTIONS/CLASSES sur le type Python qualifié, hints, groupement trié. Pur, sans `vscode` |
+| `src/variables/categorize.ts` | Catégorisation DATA/VALUES/FUNCTIONS/CLASSES, hints, `formatVariableValue` (forme/aperçus élidés), `variableSize`/`variableCount`, `organizeVariables` (groupement kind/size × tri name/size/recent), `dataViewerType`. Pur, sans `vscode` |
+| `src/variables/reprParse.ts` | Parseurs des reprs SafeRepr : paires d'une Series, grille d'un DataFrame, items de collections, `elideItems`. Pur, testé sur fixtures pandas réelles (`src/test/reprFixtures.ts`, généré) |
+| `src/variables/summary.ts` | Parseur du `summary` (= `df.info()`) attaché aux DataFrames. Pur |
 | `src/variables/inspect.ts` | Snippet Python d'inspection (enfants d'une expression, sentinelle JSON) + parseur. Pur, sans `vscode` |
-| `src/variables/jupyterApi.ts` | Adaptateur Jupyter : `jupyter.listVariables` (stable) + sonde API Kernels pour l'expansion |
-| `src/variables/variablesView.ts` | `WebviewViewProvider` de la vue Jupyter Variables, rafraîchissement sur exécutions (debounce 500 ms) |
+| `src/variables/jupyterApi.ts` | Adaptateur Jupyter : `jupyter.listVariables` (stable) + sonde API Kernels pour l'expansion profonde |
+| `src/variables/variablesOptions.ts` | Groupement/tri de la vue Variables, persistés en `globalState` (patron displayOptions) |
+| `src/variables/variablesView.ts` | `WebviewViewProvider` de la vue Variables : décorations cachées par fetch, `fallbackChildren` (tables 2 colonnes), récence par signature, bouton data viewer, rafraîchissement en fin d'exécution (debounce 500 ms) |
 | `media/main.js` / `main.css` | Côté webview plots : rendu, vignettes, clavier, modes d'affichage. Tout le DOM est construit par API, jamais par HTML interpolé |
 | `media/variables.js` / `variables.css` | Côté webview variables : sections repliables, filtre client, expansion à la demande. Même doctrine DOM |
 | `src/test/*.test.ts` | Suites `@vscode/test-cli` exécutées dans un vrai hôte d'extension |
@@ -152,6 +155,35 @@ Toute violation est un échec du projet, pas un compromis acceptable :
   se déclenche que vue visible, qu'en **fin d'exécution**
   (`executionSummary.timing`, debounce 500 ms), avec un seul fetch en vol
   (coalescing), et `plotPanel.variablesAutoRefresh: false` le rend manuel.
+  Corollaire : chaque fetch est **décoré une fois** (row + size + changedAt +
+  `fallbackChildren`) ; changer groupement/tri ne fait que re-projeter ce
+  cache, jamais retoucher le kernel ni re-parser.
+- **Règle d'or de la vue Variables : toujours 2 colonnes** (nom | valeur,
+  hint de type discret à droite, `VALUE_CAP` 80). Expansion en étages :
+  l'API Kernels (Insiders/test) exécute le snippet d'inspection ; sur stable,
+  `reprParse.ts` transforme les reprs SafeRepr en **tables d'aperçu**
+  index | valeur (Series, colonnes d'un DataFrame via sa grille de repr,
+  list/tuple/set/ndarray, dict) avec une ligne `⋯` aux troncatures — les
+  parseurs préfèrent échouer (undefined) plutôt que produire une table
+  fausse (wrap, MultiIndex, coupes 64 k). Fixtures générées avec le vrai
+  pandas 2.2.3 + SafeRepr de debugpy, réglages d'affichage de Jupyter.
+- **Groupement/tri** (`variablesOptions`, globalState) : Kind (défaut) ou
+  Size (LARGE ≥ 100 k éléments / MEDIUM ≥ 1 k / SMALL) ; tri Name (défaut),
+  Size desc, Recent desc — récence = signature `type+value(+summary pour les
+  DataFrames, dont le repr peut rester identique quand df.info bouge)`
+  comparée entre fetchs, par notebook, purgée à la fermeture. Pas de coche
+  sur le choix actif (menus natifs) — limite acceptée.
+- **« Ouvrir en grand » = `jupyter.showDataViewer`** : chemin **sans gate
+  publisher** (vérifié par décompilation, Jupyter 2026.6 + Data Wrangler
+  1.24.2) qui transmet l'objet tel quel au viewer contribué. Payload exact :
+  `{name: <identifiant OU expression Python — DW l'évalue sur le kernel>,
+  type: <membre exact des dataTypes contribués>, fileName: <Uri du notebook
+  OUVERT>, value/fullType: undefined, supportsDataExplorer: true, size: 0,
+  shape: '', count: 0, truncated: true}` ; **jamais** `frameId` ni de clé
+  `variable` (elles reroutent vers les chemins debugger). Workspace trusté
+  requis ; si aucun viewer n'est installé, Jupyter affiche lui-même le
+  prompt. Une colonne de DataFrame s'ouvre via l'expression `df["col"]`
+  (viewerType `Series`).
 - **Le snippet d'inspection** encode l'expression cible en double JSON
   (littéral Python + payload), assemble sa sentinelle à l'exécution (un écho
   du code ne peut pas simuler une réponse) et enveloppe chaque accès dans

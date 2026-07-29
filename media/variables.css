@@ -102,19 +102,25 @@ body.busy #list {
 }
 
 .var-name {
-  flex: 0 1 35%;
+  flex: 0 1 32%;
   min-width: 60px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+/* The value column reads left-to-right from a faint column separator and
+   keeps a clear gap before the right-aligned type hint (Positron airiness). */
 .var-value {
   flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  text-align: left;
+  margin-right: 16px;
+  border-left: 1px solid var(--vscode-widget-border, transparent);
+  padding-left: 8px;
   opacity: 0.9;
 }
 

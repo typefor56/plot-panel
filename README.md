@@ -80,30 +80,49 @@ the original `.py` file for Interactive Window plots), and *Run Code Again*
 reported explicitly). Plots restored from a history recorded before this
 feature carry no code, and the actions are greyed out.
 
-## The Jupyter Variables view
+## The Variables view
 
 After each execution finishes (and on demand via the refresh button), the
-view lists the kernel's top-level variables — Python kernels only — grouped
-like Positron: **DATA** (pandas/polars DataFrame, Series, Index), **VALUES**
-(everything else, numpy arrays included, as in Positron), **FUNCTIONS** and
-**CLASSES**. Two main columns, name and value, plus a right-aligned type
-hint; DataFrames display their shape (`[444448 rows x 24 columns]
-pandas.DataFrame`); the filter field narrows by name; section headers
-collapse. Note that `jupyter.listVariables` excludes functions, classes and
-modules kernel-side, so those two sections stay empty with the stable data
-source.
+view lists the kernel's top-level variables — Python kernels only. It is
+named just "Variables" to stay distinguishable from the Jupyter extension's
+own view. The title bar offers two dropdowns: **Group Variables By** — Kind
+(the Positron categories: **DATA** for pandas/polars tables, **VALUES** for
+everything else including numpy arrays, **FUNCTIONS**, **CLASSES**) or Size
+(LARGE ≥ 100k elements / MEDIUM ≥ 1k / SMALL) — and **Sort Variables By** —
+Name, Size, or Recent (variables that appeared or changed since the previous
+refresh bubble up; changes are detected by comparing snapshots, so the first
+listing has no history). Both persist across restarts; native menus cannot
+mark the active choice. Note that `jupyter.listVariables` excludes
+functions, classes and modules kernel-side, so those sections stay empty
+with the stable data source.
 
-Row expansion has two tiers:
+**Always two columns**: name | value, plus a small right-aligned type hint.
+DataFrames show their shape (`[444448 rows x 24 columns]`), Series and
+collections an elided `[begin, …, end]` preview with the element count in
+the hint (`list (1000)`), long reprs are cut hard. The filter field narrows
+by name; section headers collapse.
 
-- **Everywhere (stable included)**: a DataFrame expands into its columns —
-  name, non-null count, dtype — parsed from the `df.info()` summary that the
-  Jupyter extension computes. pandas omits that table for frames wider than
-  100 columns, which then stay unexpandable.
-- **Full depth** (column values row by row, dict keys, object attributes,
-  recursively) requires the Jupyter extension's Kernels API, which is
-  currently reserved for allow-listed publishers on stable VS Code; it works
-  on Insiders and in the test host. Where the API is denied those deeper
-  chevrons are simply hidden.
+Expansion keeps the two-column rule at every level:
+
+- **Everywhere (stable included)**: a DataFrame expands into its columns
+  (non-null count and dtype from `df.info()`), and each column expands again
+  into an index | value table; a Series expands into its index | value
+  pairs; lists, tuples, sets and arrays into position | item; dicts into
+  key | value. These tables are previews parsed from what pandas/numpy print
+  (typically the head and tail around a centered `⋯` row) — for full data,
+  use the grid button. pandas omits the `df.info()` table beyond 100 columns
+  and wraps very wide reprs, in which case those levels stay unexpandable.
+- **Full depth with live values** requires the Jupyter extension's Kernels
+  API, reserved for allow-listed publishers on stable VS Code; it works on
+  Insiders and in the test host, where expansion runs a real inspection
+  snippet on the kernel instead of parsing reprs.
+
+**Open in Data Viewer**: rows holding a DataFrame, Series, ndarray, list or
+dict (including DataFrame columns) show a grid button on hover that opens
+the variable full-size via the Jupyter extension's data-viewer delegation —
+with Data Wrangler installed, that is where it opens. Requires a trusted
+workspace, the notebook open, and a live kernel; if no viewer extension is
+installed, Jupyter itself offers to find one.
 
 **Performance**: refreshing asks the kernel to describe every variable
 (that is Jupyter's own introspection script running on the kernel, with
@@ -142,7 +161,9 @@ prefers the vector representation — crisper zooming, usually smaller files.
 | `Plot Panel: Copy / Reveal / Run Plot Code` | Plot Code dropdown on the editor panels |
 | `Plot Panel: Export All Plots…` | title-bar `…` menu; writes the whole history to a chosen folder as numbered files in their original formats |
 | `Plot Panel: Clear Plot History` | title bar (trash can) |
-| `Plot Panel: Refresh Jupyter Variables` | title bar of the Variables view |
+| `Plot Panel: Refresh Variables` | title bar of the Variables view |
+| `Plot Panel: Group Variables by Kind / Size` | Group Variables By dropdown |
+| `Plot Panel: Sort Variables by Name / Size / Recently Changed` | Sort Variables By dropdown |
 
 On a pinned single-plot tab, save/copy/code act on that plot; everywhere else
 they act on the gallery selection.
