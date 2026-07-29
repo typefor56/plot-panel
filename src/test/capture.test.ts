@@ -129,6 +129,41 @@ suite('capture in a real extension host', () => {
     );
   });
 
+  test('a capture records the originating cell, its code and the notebook uri', async () => {
+    const api = await activateExtension();
+    api.history.clear();
+    const notebook = await openTestNotebook();
+    await executeWithOutputs(notebook, [new vscode.NotebookCellOutputItem(PNG_A, 'image/png')]);
+    await waitFor(() => api.history.entries.length === 1, 'captured plot');
+    const entry = api.history.entries[0];
+    assert.ok(entry);
+    assert.strictEqual(entry.code, 'pass');
+    assert.strictEqual(entry.cellIndex, 0);
+    assert.strictEqual(entry.notebookUri, notebook.uri.toString());
+    assert.strictEqual(entry.originUri, undefined, 'not an Interactive Window cell');
+  });
+
+  test('a byte-identical re-capture keeps the first capture’s code metadata', async () => {
+    const api = await activateExtension();
+    api.history.clear();
+    const notebook = await openTestNotebook();
+    await executeWithOutputs(notebook, [new vscode.NotebookCellOutputItem(PNG_A, 'image/png')]);
+    await waitFor(() => api.history.entries.length === 1, 'first capture');
+    // Change the cell source, then emit the same bytes again: dedup keeps the
+    // existing entry, so the recorded code must still be the original one.
+    const cell = notebook.cellAt(0);
+    const edit = new vscode.WorkspaceEdit();
+    edit.replace(
+      cell.document.uri,
+      new vscode.Range(0, 0, cell.document.lineCount, 0),
+      'pass  # edited',
+    );
+    assert.ok(await vscode.workspace.applyEdit(edit), 'cell edit must apply');
+    await executeWithOutputs(notebook, [new vscode.NotebookCellOutputItem(PNG_A, 'image/png')]);
+    assert.strictEqual(api.history.entries.length, 1, 'no duplicate entry');
+    assert.strictEqual(api.history.entries[0]?.code, 'pass');
+  });
+
   test('the richest MIME representation wins (SVG over PNG)', async () => {
     const api = await activateExtension();
     api.history.clear();

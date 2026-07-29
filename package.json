@@ -158,6 +158,27 @@
         "title": "Open Plots Gallery in New Window",
         "shortTitle": "Plots Gallery in New Window",
         "category": "Plot Panel"
+      },
+      {
+        "command": "plotPanel.copyPlotCode",
+        "title": "Copy Plot Code",
+        "shortTitle": "Copy Code",
+        "category": "Plot Panel",
+        "enablement": "plotPanel.selectedHasCode"
+      },
+      {
+        "command": "plotPanel.revealPlotCode",
+        "title": "Reveal Plot Code in Source",
+        "shortTitle": "Reveal Code",
+        "category": "Plot Panel",
+        "enablement": "plotPanel.selectedHasCode"
+      },
+      {
+        "command": "plotPanel.rerunPlotCode",
+        "title": "Run Plot Code Again",
+        "shortTitle": "Run Code Again",
+        "category": "Plot Panel",
+        "enablement": "plotPanel.selectedHasCode"
       }
     ],
     "submenus": [
@@ -175,6 +196,11 @@
         "id": "plotPanel.sizingMenu",
         "label": "Sizing Policy",
         "icon": "$(screen-full)"
+      },
+      {
+        "id": "plotPanel.codeMenu",
+        "label": "Plot Code",
+        "icon": "$(code)"
       }
     ],
     "menus": {
@@ -260,6 +286,11 @@
           "group": "navigation@7"
         },
         {
+          "submenu": "plotPanel.codeMenu",
+          "when": "activeWebviewPanelId == plotPanel.gallery || activeWebviewPanelId == plotPanel.plot",
+          "group": "navigation@8"
+        },
+        {
           "command": "plotPanel.clearHistory",
           "when": "activeWebviewPanelId == plotPanel.gallery",
           "group": "navigation@9"
@@ -307,6 +338,20 @@
         {
           "command": "plotPanel.sizeActual",
           "group": "1_sizing@4"
+        }
+      ],
+      "plotPanel.codeMenu": [
+        {
+          "command": "plotPanel.copyPlotCode",
+          "group": "1_code@1"
+        },
+        {
+          "command": "plotPanel.revealPlotCode",
+          "group": "1_code@2"
+        },
+        {
+          "command": "plotPanel.rerunPlotCode",
+          "group": "1_code@3"
         }
       ],
       "plotPanel.openMenu": [

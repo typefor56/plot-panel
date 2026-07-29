@@ -61,6 +61,44 @@ suite('persistence round trip on disk', () => {
     }
   });
 
+  test('code metadata round-trips, and records without it still load', async () => {
+    const dir = tempStoreDir();
+    const history = new PlotHistory(10);
+    const store = new PlotStore(dir);
+    const subscription = store.attach(history, new ThumbnailCache());
+    try {
+      const bare = makeEntry([1, 2, 3]);
+      const annotated: PlotEntry = {
+        ...makeEntry([4, 5, 6]),
+        code: 'plt.plot(x)',
+        notebookUri: 'file:///tmp/roundtrip.ipynb',
+        cellIndex: 3,
+        originUri: 'file:///tmp/script.py',
+        originLine: 12,
+      };
+      history.add(bare, true);
+      history.add(annotated, true);
+      await store.flush();
+
+      const reloaded = await new PlotStore(dir).load();
+      assert.strictEqual(reloaded.entries.length, 2);
+      const first = reloaded.entries[0];
+      const second = reloaded.entries[1];
+      assert.ok(first && second);
+      // An old-style record without the optional fields loads untouched.
+      assert.strictEqual(first.code, undefined);
+      assert.strictEqual(first.notebookUri, undefined);
+      assert.strictEqual(second.code, 'plt.plot(x)');
+      assert.strictEqual(second.notebookUri, 'file:///tmp/roundtrip.ipynb');
+      assert.strictEqual(second.cellIndex, 3);
+      assert.strictEqual(second.originUri, 'file:///tmp/script.py');
+      assert.strictEqual(second.originLine, 12);
+    } finally {
+      subscription.dispose();
+      await vscode.workspace.fs.delete(dir, { recursive: true, useTrash: false });
+    }
+  });
+
   test('evicted and cleared entries disappear from disk', async () => {
     const dir = tempStoreDir();
     const history = new PlotHistory(2);

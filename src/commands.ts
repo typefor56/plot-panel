@@ -1,5 +1,6 @@
 import * as os from 'node:os';
 import * as vscode from 'vscode';
+import { copyPlotCode, rerunPlotCode, revealPlotCode } from './codeActions';
 import type { DisplayOptions } from './displayOptions';
 import type { PanelManager } from './galleryPanel';
 import type { PlotHistory } from './history';
@@ -115,6 +116,13 @@ export function registerCommands(
     vscode.commands.registerCommand('plotPanel.openGallery', () => panels.openGallery()),
     vscode.commands.registerCommand('plotPanel.openGalleryInNewWindow', () =>
       panels.openGalleryInNewWindow(),
+    ),
+    vscode.commands.registerCommand('plotPanel.copyPlotCode', () => copyPlotCode(targetEntry())),
+    vscode.commands.registerCommand('plotPanel.revealPlotCode', () =>
+      revealPlotCode(targetEntry()),
+    ),
+    vscode.commands.registerCommand('plotPanel.rerunPlotCode', () =>
+      rerunPlotCode(targetEntry()),
     ),
     vscode.commands.registerCommand('plotPanel.zoomFit', () => display.setMode('fit')),
     vscode.commands.registerCommand('plotPanel.zoomFifty', () => display.setMode('zoom-50')),

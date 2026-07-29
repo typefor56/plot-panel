@@ -33,6 +33,32 @@ function sourceLabelOf(notebook: vscode.NotebookDocument): string {
   return slash === -1 ? path : path.slice(slash + 1);
 }
 
+/** Cells larger than this keep a truncated code snapshot (bounds index.json). */
+const CODE_CAP = 10_000;
+
+interface InteractiveOrigin {
+  readonly uristring: string;
+  readonly lineIndex: number;
+}
+
+/**
+ * The Jupyter extension stamps Interactive Window cells with untyped metadata
+ * pointing back at the `# %%` block in the source file; narrow it structurally.
+ */
+function interactiveOriginOf(cell: vscode.NotebookCell): InteractiveOrigin | undefined {
+  const raw: unknown = cell.metadata['interactive'];
+  if (typeof raw !== 'object' || raw === null) {
+    return undefined;
+  }
+  const record = raw as Record<string, unknown>;
+  const uristring = record['uristring'];
+  const lineIndex = record['lineIndex'];
+  if (typeof uristring !== 'string' || typeof lineIndex !== 'number') {
+    return undefined;
+  }
+  return { uristring, lineIndex };
+}
+
 export class PlotCapture implements vscode.Disposable {
   private readonly subscription: vscode.Disposable;
   private readonly unsupportedListeners = new Set<UnsupportedOutputListener>();
@@ -59,7 +85,7 @@ export class PlotCapture implements vscode.Disposable {
         continue;
       }
       for (const output of change.outputs) {
-        this.ingest(output.items, event.notebook);
+        this.ingest(output.items, event.notebook, change.cell);
       }
     }
   }
@@ -67,16 +93,26 @@ export class PlotCapture implements vscode.Disposable {
   private ingest(
     items: readonly vscode.NotebookCellOutputItem[],
     notebook: vscode.NotebookDocument,
+    cell: vscode.NotebookCell,
   ): void {
     const image = pickImageItem(items);
     if (image !== undefined) {
+      const sourceKind = sourceKindOf(notebook);
+      const code = cell.document.getText().slice(0, CODE_CAP);
+      const origin = sourceKind === 'interactive' ? interactiveOriginOf(cell) : undefined;
       const entry: PlotEntry = {
         id: contentId(image.mime, image.data),
         mime: image.mime,
         data: image.data,
         timestamp: Date.now(),
         source: sourceLabelOf(notebook),
-        sourceKind: sourceKindOf(notebook),
+        sourceKind,
+        ...(code.length > 0 ? { code } : {}),
+        notebookUri: notebook.uri.toString(),
+        ...(cell.index >= 0 ? { cellIndex: cell.index } : {}),
+        ...(origin !== undefined
+          ? { originUri: origin.uristring, originLine: origin.lineIndex }
+          : {}),
       };
       this.history.add(entry, this.follow());
       return;

@@ -28,6 +28,12 @@ interface IndexRecord {
   readonly source: string;
   readonly sourceKind: PlotSourceKind;
   readonly file: string;
+  /** Optional origin metadata (additive since the code actions; version stays 1). */
+  readonly code?: string;
+  readonly notebookUri?: string;
+  readonly cellIndex?: number;
+  readonly originUri?: string;
+  readonly originLine?: number;
 }
 
 interface IndexFile {
@@ -59,7 +65,12 @@ function isRecord(value: unknown): value is IndexRecord {
     (record.sourceKind === 'notebook' || record.sourceKind === 'interactive') &&
     typeof record.file === 'string' &&
     !record.file.includes('/') &&
-    !record.file.includes('\\')
+    !record.file.includes('\\') &&
+    (record.code === undefined || typeof record.code === 'string') &&
+    (record.notebookUri === undefined || typeof record.notebookUri === 'string') &&
+    (record.cellIndex === undefined || typeof record.cellIndex === 'number') &&
+    (record.originUri === undefined || typeof record.originUri === 'string') &&
+    (record.originLine === undefined || typeof record.originLine === 'number')
   );
 }
 
@@ -111,6 +122,11 @@ export class PlotStore {
           timestamp: record.timestamp,
           source: record.source,
           sourceKind: record.sourceKind,
+          ...(record.code !== undefined ? { code: record.code } : {}),
+          ...(record.notebookUri !== undefined ? { notebookUri: record.notebookUri } : {}),
+          ...(record.cellIndex !== undefined ? { cellIndex: record.cellIndex } : {}),
+          ...(record.originUri !== undefined ? { originUri: record.originUri } : {}),
+          ...(record.originLine !== undefined ? { originLine: record.originLine } : {}),
         });
       } catch {
         // Missing image file: drop the record.
@@ -209,6 +225,11 @@ export class PlotStore {
         source: entry.source,
         sourceKind: entry.sourceKind,
         file: fileNameFor(entry),
+        ...(entry.code !== undefined ? { code: entry.code } : {}),
+        ...(entry.notebookUri !== undefined ? { notebookUri: entry.notebookUri } : {}),
+        ...(entry.cellIndex !== undefined ? { cellIndex: entry.cellIndex } : {}),
+        ...(entry.originUri !== undefined ? { originUri: entry.originUri } : {}),
+        ...(entry.originLine !== undefined ? { originLine: entry.originLine } : {}),
       })),
     };
     await vscode.workspace.fs.writeFile(

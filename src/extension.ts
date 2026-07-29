@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { PlotCapture } from './capture';
 import { registerCommands } from './commands';
+import { ContextKeys } from './contextKeys';
 import { DisplayOptions } from './displayOptions';
 import { PanelManager } from './galleryPanel';
 import { PlotHistory } from './history';
@@ -44,6 +45,7 @@ export function activate(context: vscode.ExtensionContext): PlotPanelApi {
     provider,
     panels,
     panels.registerSerializers(),
+    new ContextKeys(history),
     vscode.window.registerWebviewViewProvider(PlotsViewProvider.viewType, provider),
     capture.onUnsupportedOutput((mime, source) => {
       registry.broadcastNotice(
