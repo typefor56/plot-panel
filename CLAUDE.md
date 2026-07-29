@@ -7,8 +7,13 @@ kernels Jupyter — dans les notebooks **et** dans l'Interactive Window — et l
 affiche dans une vue dédiée (figure courante en grand, bande de vignettes
 cliquables), plaçable dans la barre latérale secondaire. C'est l'équivalent du
 panneau Plots de RStudio/Positron, que le Plot Viewer de l'extension Jupyter ne
-fournit pas. Le suivi des variables est volontairement hors périmètre : la vue
-Variables de l'extension Jupyter fait déjà ce travail (voir README).
+fournit pas. S'y ajoutent la toolbar Positron (zoom, sizing policy, filtre
+sombre, actions sur le code du plot), la galerie/plots en onglets ou fenêtres
+flottantes, et une vue **Jupyter Variables** (catégories DATA/VALUES/
+FUNCTIONS/CLASSES, filtre, expansion des enfants quand l'API Kernels est
+accessible). NB : le brief initial excluait le suivi des variables ; cette
+décision a été **inversée à la demande de l'utilisateur** (session 2026-07-29),
+avec un périmètre Python uniquement.
 
 ## Carte des modules
 
@@ -19,17 +24,31 @@ Variables de l'extension Jupyter fait déjà ce travail (voir README).
 | `src/mime.ts` | Choix de la meilleure représentation MIME (vectoriel > bitmap), détection des sorties widget, extensions de fichiers. Pur, sans `vscode` |
 | `src/hash.ts` | Identité de contenu (SHA-256 de mime + octets), clé de déduplication |
 | `src/history.ts` | Modèle d'historique : ajout/dédup, éviction FIFO au plafond, sémantique de sélection, événements. Pur, sans `vscode` |
-| `src/capture.ts` | Abonnement à `onDidChangeNotebookDocument`, extraction des sorties image, notification explicite pour les widgets |
-| `src/plotsView.ts` | `WebviewViewProvider` : HTML statique + CSP à nonce, protocole de messages, réhydratation à chaque `resolveWebviewView` |
-| `src/commands.ts` | Commandes : navigation, effacement, sauvegarde (format d'origine), copie, export global |
+| `src/capture.ts` | Abonnement à `onDidChangeNotebookDocument`, extraction des sorties image + métadonnées de code de la cellule, notification explicite pour les widgets |
+| `src/webviewSession.ts` | `PlotWebviewSession` : tout le per-webview (squelette CSP à nonce, handshake `ready`→`state`, protocole, copie), partagé entre vue latérale et panneaux ; modes `gallery`/`single` |
+| `src/sessionRegistry.ts` | Registre des sessions vivantes ; notice sticky broadcastée et survivant à la réhydratation |
+| `src/plotsView.ts` | `WebviewViewProvider` mince : attache une session gallery à chaque `resolveWebviewView` |
+| `src/galleryPanel.ts` | `PanelManager` : galerie singleton + panneaux plot épinglés en `WebviewPanel`, serializers de reload, « new window » via `moveEditorToNewWindow` |
+| `src/displayOptions.ts` | `DisplayMode` (enum plat zoom+sizing, dernier choisi gagne) + filtre sombre, persistés en `globalState`, émetteur maison |
+| `src/contextKeys.ts` | Clés de contexte `when` centralisées (seul module autorisé à appeler `setContext`) : `plotPanel.selectedHasCode` |
+| `src/codeActions.ts` | Copy/Reveal/Rerun du code d'un plot, best-effort avec erreurs explicites |
+| `src/commands.ts` | Enregistrement de toutes les commandes ; sur un panneau épinglé actif, save/copy/code agissent sur le pin |
 | `src/persistence.ts` | `PlotStore` : fichiers image adressés par contenu + vignettes `<id>.thumb.png` + `index.json` dans `globalStorageUri`, écritures sérialisées et idempotentes |
 | `src/thumbnails.ts` | `ThumbnailCache` : vignettes PNG réduites partagées entre vue et persistance |
-| `media/main.js` / `main.css` | Côté webview : rendu, vignettes, clavier. Tout le DOM est construit par API, jamais par HTML interpolé |
+| `src/variables/categorize.ts` | Catégorisation DATA/VALUES/FUNCTIONS/CLASSES sur le type Python qualifié, hints, groupement trié. Pur, sans `vscode` |
+| `src/variables/inspect.ts` | Snippet Python d'inspection (enfants d'une expression, sentinelle JSON) + parseur. Pur, sans `vscode` |
+| `src/variables/jupyterApi.ts` | Adaptateur Jupyter : `jupyter.listVariables` (stable) + sonde API Kernels pour l'expansion |
+| `src/variables/variablesView.ts` | `WebviewViewProvider` de la vue Jupyter Variables, rafraîchissement sur exécutions (debounce 500 ms) |
+| `media/main.js` / `main.css` | Côté webview plots : rendu, vignettes, clavier, modes d'affichage. Tout le DOM est construit par API, jamais par HTML interpolé |
+| `media/variables.js` / `variables.css` | Côté webview variables : sections repliables, filtre client, expansion à la demande. Même doctrine DOM |
 | `src/test/*.test.ts` | Suites `@vscode/test-cli` exécutées dans un vrai hôte d'extension |
 
 Flux : kernel → `onDidChangeNotebookDocument` → `capture` → `history` (source de
-vérité unique) → événements → `plotsView` (projection webview) et `persistence`
-(miroir disque). Les commandes n'agissent que sur `history`.
+vérité unique) → événements → sessions webview (projections : vue latérale,
+galerie, panneaux épinglés) et `persistence` (miroir disque). Les commandes
+n'agissent que sur `history` et `displayOptions`. Variables : même événement →
+`variablesView` → `jupyter.listVariables` (pull, pas d'événement de changement
+côté Jupyter).
 
 ## Contraintes dures = critères d'échec
 
@@ -89,6 +108,47 @@ Toute violation est un échec du projet, pas un compromis acceptable :
   persistant. `autoReveal` n'est branché qu'après restauration.
 - **Version de VS Code de test épinglée** dans `.vscode-test.mjs` (cache de
   323 Mo réutilisé, exécutions reproductibles).
+- **Un seul enum `DisplayMode`** pour zoom et sizing policy (états mutuellement
+  exclusifs, le dernier choisi gagne ; « 100 % » = « Actual size »). Persisté
+  en `globalState` avec le filtre sombre : ce sont des toggles de toolbar, pas
+  des réglages méritant une entrée settings.
+- **Le filtre sombre est une fonction CSS `filter`** (`invert(1)
+  hue-rotate(180deg)`), pas une couleur : la contrainte 6 reste respectée.
+- **Les métadonnées de code** (`code` plafonné à 10 k, `notebookUri`,
+  `cellIndex`, `originUri`/`originLine` pour l'IW) sont **optionnelles et
+  additives** dans `index.json` : `INDEX_VERSION` reste à 1 (le bump
+  effacerait l'historique de tout le monde ; le garde `isRecord` tolérant
+  assure la compat dans les deux sens). La dédup par contenu fait qu'un
+  doublon octet-pour-octet garde les métadonnées de la première capture.
+- **Reveal/rerun retrouvent la cellule par texte exact d'abord**, indice
+  capturé en repli : les cellules bougent, le texte est plus fiable ; best
+  effort assumé avec erreurs explicites.
+- **Variables en deux couches** : `jupyter.listVariables` (commande contribuée
+  stable, top-level uniquement, pull) partout ; expansion des enfants via
+  l'API Kernels (`@vscode/jupyter-extension`, devDependency types-only —
+  l'arbre de prod reste vide). Cette API est **verrouillée par publisher** :
+  accordée en `extensionMode === Test` et sur Insiders, refusée (avec toast
+  d'erreur Jupyter) aux publishers inconnus sur stable. La sonde ne tourne
+  donc que là où l'accès est possible ; ailleurs les chevrons sont masqués et
+  aucun toast n'est déclenché. `jupyter.listVariables` n'existe pas dans
+  l'hôte de test (rejet « command not found », pas `[]`) : l'adaptateur
+  try/catch tout, et seuls `categorize`/`inspect` (purs) sont testés.
+- **La catégorisation DATA/VALUES/FUNCTIONS/CLASSES est à nous** (Positron ne
+  documente pas la sienne) : dernier segment du type qualifié — DataFrame/
+  Series/Index/ndarray → DATA, callables → FUNCTIONS, `type`/`*Meta` →
+  CLASSES, sinon VALUES.
+- **Le snippet d'inspection** encode l'expression cible en double JSON
+  (littéral Python + payload), assemble sa sentinelle à l'exécution (un écho
+  du code ne peut pas simuler une réponse) et enveloppe chaque accès dans
+  try/except (l'expansion peut exécuter des property getters — compromis
+  standard des inspecteurs).
+- **Toolbars natives partout** (`view/title`, `editor/title` +
+  `contributes.submenus`) plutôt qu'une toolbar HTML dans le webview : pas de
+  police codicon à embarquer, pas de dropdown à réimplémenter. Limite
+  acceptée : pas de coche sur le niveau de zoom actif dans un menu natif.
+- **« New window » = panneau créé focalisé puis
+  `workbench.action.moveEditorToNewWindow`** (la commande agit sur l'éditeur
+  actif).
 
 ## Conventions
 
@@ -96,11 +156,15 @@ Toute violation est un échec du projet, pas un compromis acceptable :
   `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`).
 - Modules purs (`history`, `mime`, `hash`) sans import `vscode` : testables
   finement, réutilisables côté webview si besoin.
-- Le webview est une projection sans état propre : source de vérité unique dans
-  `history`, réhydratation complète à chaque `resolve` (les `WebviewView` n'ont
-  pas de `retainContextWhenHidden`).
+- Les webviews sont des projections sans état propre : sources de vérité dans
+  `history`/`displayOptions`, réhydratation complète à chaque handshake
+  `ready` (ni les `WebviewView` ni nos panneaux n'utilisent
+  `retainContextWhenHidden`). Seul état client : filtre et sections repliées
+  de la vue Variables, et le `pinnedId` qu'un panneau épinglé stocke via
+  `setState` pour survivre au reload.
 - Messages webview typés (`ToWebviewMessage`/`FromWebviewMessage`) dans
-  `plotsView.ts`.
+  `webviewSession.ts` ; protocole distinct dans `variablesView.ts`.
+- `setContext` uniquement dans `contextKeys.ts`.
 - Anglais dans le code et l'UI, commits en anglais, un commit par jalon.
 
 ## Commandes de vérification
