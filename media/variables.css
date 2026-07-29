@@ -1,0 +1,142 @@
+/* All colors come from VS Code theme variables: the view must be
+   indistinguishable from a built-in panel in light and dark themes. */
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+  color: var(--vscode-foreground);
+  background-color: var(--vscode-sideBar-background, var(--vscode-editor-background));
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size);
+}
+
+#filter-row {
+  flex: 0 0 auto;
+  padding: 4px 8px;
+}
+
+#filter {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 3px 6px;
+  color: var(--vscode-input-foreground);
+  background-color: var(--vscode-input-background);
+  border: 1px solid var(--vscode-input-border, transparent);
+  border-radius: 2px;
+  outline: none;
+  font-family: inherit;
+  font-size: inherit;
+}
+
+#filter:focus {
+  border-color: var(--vscode-focusBorder);
+}
+
+#filter::placeholder {
+  color: var(--vscode-input-placeholderForeground);
+}
+
+#list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+body.busy #list {
+  opacity: 0.6;
+}
+
+.section-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px 3px 4px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 0.85em;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--vscode-sideBarSectionHeader-foreground, var(--vscode-foreground));
+  background-color: var(--vscode-sideBarSectionHeader-background, transparent);
+  border-top: 1px solid var(--vscode-sideBarSectionHeader-border, transparent);
+}
+
+.var-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px 2px 4px;
+  border-top: 1px solid var(--vscode-widget-border, transparent);
+}
+
+.var-row:hover {
+  background-color: var(--vscode-list-hoverBackground);
+}
+
+.var-row.expandable-row {
+  cursor: pointer;
+}
+
+.var-row:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -1px;
+}
+
+.twistie {
+  flex: 0 0 12px;
+  width: 12px;
+  text-align: center;
+  font-size: 0.8em;
+  opacity: 0;
+}
+
+.twistie.expandable {
+  opacity: 0.8;
+}
+
+.var-name {
+  flex: 0 1 35%;
+  min-width: 60px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.var-value {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0.9;
+}
+
+.var-hint {
+  flex: 0 0 auto;
+  max-width: 35%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+  font-size: 0.9em;
+  color: var(--vscode-descriptionForeground);
+}
+
+.var-note {
+  padding: 2px 8px 2px 20px;
+  font-style: italic;
+  color: var(--vscode-descriptionForeground);
+}
+
+#empty {
+  margin: 12px;
+  text-align: center;
+  color: var(--vscode-descriptionForeground);
+}

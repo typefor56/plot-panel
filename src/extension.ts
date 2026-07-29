@@ -9,12 +9,16 @@ import { PlotStore } from './persistence';
 import { PlotsViewProvider } from './plotsView';
 import { SessionRegistry } from './sessionRegistry';
 import { ThumbnailCache } from './thumbnails';
+import { JupyterVariablesSource } from './variables/jupyterApi';
+import { VariablesViewProvider } from './variables/variablesView';
 
 /** Public surface returned by activate(), used by the extension-host tests. */
 export interface PlotPanelApi {
   readonly history: PlotHistory;
   readonly capture: PlotCapture;
   readonly display: DisplayOptions;
+  /** Refresh the Jupyter Variables view now; resolves when the fetch completed. */
+  readonly refreshVariables: () => Promise<void>;
   /** Resolves once the persisted history has been restored and the store attached. */
   readonly ready: Promise<void>;
 }
@@ -38,6 +42,14 @@ export function activate(context: vscode.ExtensionContext): PlotPanelApi {
   );
   const store = new PlotStore(vscode.Uri.joinPath(context.globalStorageUri, 'plots'));
   const panels = new PanelManager(context.extensionUri, history, thumbnails, display, registry);
+  // The Jupyter Kernels API is publisher-gated: probing it on stable would
+  // only earn a denial toast, so expansion is attempted where access is
+  // possible (test host, Insiders) and the view hides its chevrons elsewhere.
+  const variablesSource = new JupyterVariablesSource(
+    context.extensionMode === vscode.ExtensionMode.Test ||
+      vscode.env.appName.includes('Insiders'),
+  );
+  const variables = new VariablesViewProvider(context.extensionUri, variablesSource);
 
   context.subscriptions.push(
     capture,
@@ -46,6 +58,9 @@ export function activate(context: vscode.ExtensionContext): PlotPanelApi {
     panels,
     panels.registerSerializers(),
     new ContextKeys(history),
+    variables,
+    vscode.window.registerWebviewViewProvider(VariablesViewProvider.viewType, variables),
+    vscode.commands.registerCommand('plotPanel.refreshVariables', () => variables.refresh()),
     vscode.window.registerWebviewViewProvider(PlotsViewProvider.viewType, provider),
     capture.onUnsupportedOutput((mime, source) => {
       registry.broadcastNotice(
@@ -95,7 +110,7 @@ export function activate(context: vscode.ExtensionContext): PlotPanelApi {
 
   registerCommands(context, history, provider, display, panels);
 
-  return { history, capture, display, ready };
+  return { history, capture, display, refreshVariables: () => variables.refresh(), ready };
 }
 
 export function deactivate(): void {}
