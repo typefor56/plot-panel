@@ -53,6 +53,9 @@ async function activateExtension(): Promise<PlotPanelApi> {
   const extension = vscode.extensions.getExtension<PlotPanelApi>('for56.plot-panel');
   assert.ok(extension, 'extension not found in the test host');
   const api = await extension.activate();
+  // Wait for the persisted-history restore: it must not race with the tests'
+  // own history manipulation.
+  await api.ready;
   ensureController();
   return api;
 }

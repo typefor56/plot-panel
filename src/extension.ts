@@ -9,6 +9,8 @@ import { PlotsViewProvider } from './plotsView';
 export interface PlotPanelApi {
   readonly history: PlotHistory;
   readonly capture: PlotCapture;
+  /** Resolves once the persisted history has been restored and the store attached. */
+  readonly ready: Promise<void>;
 }
 
 function configuration(): vscode.WorkspaceConfiguration {
@@ -40,7 +42,7 @@ export function activate(context: vscode.ExtensionContext): PlotPanelApi {
   // Restore the persisted history, then keep the store in sync. autoReveal is
   // only hooked up afterwards so restoring plots never pops the view open on
   // startup — only genuinely new figures do.
-  void (async () => {
+  const ready = (async () => {
     const snapshot = await store.load();
     for (const entry of snapshot.entries) {
       history.add(entry, false);
@@ -56,11 +58,13 @@ export function activate(context: vscode.ExtensionContext): PlotPanelApi {
         }),
       ),
     );
-  })();
+  })().catch(() => {
+    // load() and attach() are already defensive; never fail activation.
+  });
 
   registerCommands(context, history);
 
-  return { history, capture };
+  return { history, capture, ready };
 }
 
 export function deactivate(): void {}
