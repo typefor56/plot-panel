@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { PlotCapture } from './capture';
 import { registerCommands } from './commands';
 import { PlotHistory } from './history';
+import { PlotStore } from './persistence';
 import { PlotsViewProvider } from './plotsView';
 
 /** Public surface returned by activate(), used by the extension-host tests. */
@@ -18,6 +19,7 @@ export function activate(context: vscode.ExtensionContext): PlotPanelApi {
   const history = new PlotHistory(configuration().get('historyLimit', 50));
   const capture = new PlotCapture(history, () => configuration().get('followLatest', true));
   const provider = new PlotsViewProvider(context.extensionUri, history);
+  const store = new PlotStore(vscode.Uri.joinPath(context.globalStorageUri, 'plots'));
 
   context.subscriptions.push(
     capture,
@@ -33,14 +35,28 @@ export function activate(context: vscode.ExtensionContext): PlotPanelApi {
         history.setLimit(configuration().get('historyLimit', 50));
       }
     }),
-    new vscode.Disposable(
-      history.onDidChange((event) => {
-        if (event.type === 'added' && configuration().get('autoReveal', true)) {
-          void provider.reveal();
-        }
-      }),
-    ),
   );
+
+  // Restore the persisted history, then keep the store in sync. autoReveal is
+  // only hooked up afterwards so restoring plots never pops the view open on
+  // startup — only genuinely new figures do.
+  void (async () => {
+    const snapshot = await store.load();
+    for (const entry of snapshot.entries) {
+      history.add(entry, false);
+    }
+    history.select(snapshot.selectedId ?? history.entries.at(-1)?.id);
+    context.subscriptions.push(
+      store.attach(history),
+      new vscode.Disposable(
+        history.onDidChange((event) => {
+          if (event.type === 'added' && configuration().get('autoReveal', true)) {
+            void provider.reveal();
+          }
+        }),
+      ),
+    );
+  })();
 
   registerCommands(context, history);
 
