@@ -2,21 +2,24 @@ import * as vscode from 'vscode';
 import { contentId } from './hash';
 import type { PlotHistory } from './history';
 import { extensionForMime } from './mime';
+import type { ThumbnailCache } from './thumbnails';
 import type { PlotEntry, PlotSourceKind } from './types';
 
 /**
  * Persistence of the plot history across restarts, in the extension's global
  * storage directory (never workspaceState, which is not meant for binary
- * data). Layout: one image file per entry, content-addressed by its id, plus
- * an index.json with the metadata and the current selection.
+ * data). Layout: one image file per entry, content-addressed by its id, an
+ * optional <id>.thumb.png reduced preview, plus an index.json with the
+ * metadata and the current selection.
  *
  * Writes are serialized through a promise queue and each sync is a full,
- * idempotent reconciliation of the directory against a history snapshot, so
- * crashes can at worst lose the latest figures, never corrupt the store.
+ * idempotent reconciliation of the directory against a snapshot, so crashes
+ * can at worst lose the latest figures, never corrupt the store.
  */
 
 const INDEX_FILE = 'index.json';
 const INDEX_VERSION = 1;
+const THUMB_SUFFIX = '.thumb.png';
 
 interface IndexRecord {
   readonly id: string;
@@ -33,9 +36,10 @@ interface IndexFile {
   readonly records: readonly IndexRecord[];
 }
 
-interface Snapshot {
+export interface StoreSnapshot {
   readonly entries: readonly PlotEntry[];
   readonly selectedId: string | undefined;
+  readonly thumbnails: ReadonlyMap<string, Uint8Array>;
 }
 
 function fileNameFor(entry: { id: string; mime: string }): string {
@@ -65,23 +69,29 @@ export class PlotStore {
   constructor(private readonly dir: vscode.Uri) {}
 
   /** Load persisted entries. Unreadable or tampered files are skipped, never fatal. */
-  async load(): Promise<Snapshot> {
+  async load(): Promise<StoreSnapshot> {
+    const emptySnapshot: StoreSnapshot = {
+      entries: [],
+      selectedId: undefined,
+      thumbnails: new Map(),
+    };
     let raw: Uint8Array;
     try {
       raw = await vscode.workspace.fs.readFile(vscode.Uri.joinPath(this.dir, INDEX_FILE));
     } catch {
-      return { entries: [], selectedId: undefined };
+      return emptySnapshot;
     }
     let index: IndexFile;
     try {
       index = JSON.parse(Buffer.from(raw).toString('utf8')) as IndexFile;
     } catch {
-      return { entries: [], selectedId: undefined };
+      return emptySnapshot;
     }
     if (index.version !== INDEX_VERSION || !Array.isArray(index.records)) {
-      return { entries: [], selectedId: undefined };
+      return emptySnapshot;
     }
     const entries: PlotEntry[] = [];
+    const thumbnails = new Map<string, Uint8Array>();
     for (const record of index.records) {
       if (!isRecord(record)) {
         continue;
@@ -104,28 +114,52 @@ export class PlotStore {
         });
       } catch {
         // Missing image file: drop the record.
+        continue;
+      }
+      try {
+        thumbnails.set(
+          record.id,
+          await vscode.workspace.fs.readFile(
+            vscode.Uri.joinPath(this.dir, `${record.id}${THUMB_SUFFIX}`),
+          ),
+        );
+      } catch {
+        // No thumbnail persisted: the webview will regenerate it.
       }
     }
     const selectedId =
       typeof index.selectedId === 'string' && entries.some((e) => e.id === index.selectedId)
         ? index.selectedId
         : undefined;
-    return { entries, selectedId };
+    return { entries, selectedId, thumbnails };
   }
 
-  /** Keep the store in sync with the history from now on. */
-  attach(history: PlotHistory): vscode.Disposable {
-    const unsubscribe = history.onDidChange(() => {
-      const snapshot: Snapshot = {
+  /** Keep the store in sync with the history and thumbnail cache from now on. */
+  attach(history: PlotHistory, thumbnails: ThumbnailCache): vscode.Disposable {
+    const schedule = (): void => {
+      const kept = new Map<string, Uint8Array>();
+      for (const entry of history.entries) {
+        const thumb = thumbnails.get(entry.id);
+        if (thumb !== undefined) {
+          kept.set(entry.id, thumb);
+        }
+      }
+      const snapshot: StoreSnapshot = {
         entries: [...history.entries],
         selectedId: history.selected?.id,
+        thumbnails: kept,
       };
       this.queue = this.queue.then(
         () => this.sync(snapshot),
         () => this.sync(snapshot),
       );
+    };
+    const unsubscribeHistory = history.onDidChange(schedule);
+    const unsubscribeThumbnails = thumbnails.onDidChange(schedule);
+    return new vscode.Disposable(() => {
+      unsubscribeHistory();
+      unsubscribeThumbnails();
     });
-    return new vscode.Disposable(unsubscribe);
   }
 
   /** Resolves when all scheduled writes have landed on disk. */
@@ -136,11 +170,14 @@ export class PlotStore {
     );
   }
 
-  private async sync(snapshot: Snapshot): Promise<void> {
+  private async sync(snapshot: StoreSnapshot): Promise<void> {
     await vscode.workspace.fs.createDirectory(this.dir);
-    const wanted = new Map<string, PlotEntry>();
+    const wanted = new Map<string, Uint8Array>();
     for (const entry of snapshot.entries) {
-      wanted.set(fileNameFor(entry), entry);
+      wanted.set(fileNameFor(entry), entry.data);
+    }
+    for (const [id, thumb] of snapshot.thumbnails) {
+      wanted.set(`${id}${THUMB_SUFFIX}`, thumb);
     }
     const existing = new Set<string>();
     for (const [name, type] of await vscode.workspace.fs.readDirectory(this.dir)) {
@@ -148,9 +185,9 @@ export class PlotStore {
         existing.add(name);
       }
     }
-    for (const [name, entry] of wanted) {
+    for (const [name, data] of wanted) {
       if (!existing.has(name)) {
-        await vscode.workspace.fs.writeFile(vscode.Uri.joinPath(this.dir, name), entry.data);
+        await vscode.workspace.fs.writeFile(vscode.Uri.joinPath(this.dir, name), data);
       }
     }
     for (const name of existing) {

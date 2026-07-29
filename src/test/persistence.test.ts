@@ -5,6 +5,7 @@ import * as vscode from 'vscode';
 import { contentId } from '../hash';
 import { PlotHistory } from '../history';
 import { PlotStore } from '../persistence';
+import { ThumbnailCache } from '../thumbnails';
 import type { PlotEntry } from '../types';
 
 function makeEntry(bytes: number[], mime = 'image/png'): PlotEntry {
@@ -32,7 +33,7 @@ suite('persistence round trip on disk', () => {
     const dir = tempStoreDir();
     const history = new PlotHistory(10);
     const store = new PlotStore(dir);
-    const subscription = store.attach(history);
+    const subscription = store.attach(history, new ThumbnailCache());
     try {
       const a = makeEntry([1, 2, 3], 'image/png');
       const b = makeEntry([4, 5, 6], 'image/svg+xml');
@@ -64,7 +65,7 @@ suite('persistence round trip on disk', () => {
     const dir = tempStoreDir();
     const history = new PlotHistory(2);
     const store = new PlotStore(dir);
-    const subscription = store.attach(history);
+    const subscription = store.attach(history, new ThumbnailCache());
     try {
       history.add(makeEntry([1]), true);
       history.add(makeEntry([2]), true);
@@ -89,7 +90,9 @@ suite('persistence round trip on disk', () => {
 
   test('a missing or corrupted store loads as empty, never throws', async () => {
     const missing = await new PlotStore(tempStoreDir()).load();
-    assert.deepStrictEqual(missing, { entries: [], selectedId: undefined });
+    assert.deepStrictEqual(missing.entries, []);
+    assert.strictEqual(missing.selectedId, undefined);
+    assert.strictEqual(missing.thumbnails.size, 0);
 
     const dir = tempStoreDir();
     await vscode.workspace.fs.createDirectory(dir);
@@ -99,8 +102,40 @@ suite('persistence round trip on disk', () => {
     );
     try {
       const corrupted = await new PlotStore(dir).load();
-      assert.deepStrictEqual(corrupted, { entries: [], selectedId: undefined });
+      assert.deepStrictEqual(corrupted.entries, []);
+      assert.strictEqual(corrupted.selectedId, undefined);
     } finally {
+      await vscode.workspace.fs.delete(dir, { recursive: true, useTrash: false });
+    }
+  });
+
+  test('thumbnails survive the round trip and stale ones are removed', async () => {
+    const dir = tempStoreDir();
+    const history = new PlotHistory(10);
+    const thumbnails = new ThumbnailCache();
+    const store = new PlotStore(dir);
+    const subscription = store.attach(history, thumbnails);
+    try {
+      const entry = makeEntry([1, 2, 3]);
+      history.add(entry, true);
+      thumbnails.set(entry.id, new Uint8Array([7, 7, 7]));
+      await store.flush();
+
+      const reloaded = await new PlotStore(dir).load();
+      const thumb = reloaded.thumbnails.get(entry.id);
+      assert.ok(thumb, 'thumbnail must be persisted');
+      assert.deepStrictEqual(Buffer.from(thumb), Buffer.from([7, 7, 7]));
+
+      history.clear();
+      thumbnails.prune(new Set());
+      await store.flush();
+      const names = (await vscode.workspace.fs.readDirectory(dir)).map(([name]) => name);
+      assert.ok(
+        !names.some((name) => name.endsWith('.thumb.png')),
+        'stale thumbnail files must be deleted',
+      );
+    } finally {
+      subscription.dispose();
       await vscode.workspace.fs.delete(dir, { recursive: true, useTrash: false });
     }
   });
@@ -109,7 +144,7 @@ suite('persistence round trip on disk', () => {
     const dir = tempStoreDir();
     const history = new PlotHistory(10);
     const store = new PlotStore(dir);
-    const subscription = store.attach(history);
+    const subscription = store.attach(history, new ThumbnailCache());
     try {
       const entry = makeEntry([9, 9, 9]);
       history.add(entry, true);

@@ -4,6 +4,7 @@ import { registerCommands } from './commands';
 import { PlotHistory } from './history';
 import { PlotStore } from './persistence';
 import { PlotsViewProvider } from './plotsView';
+import { ThumbnailCache } from './thumbnails';
 
 /** Public surface returned by activate(), used by the extension-host tests. */
 export interface PlotPanelApi {
@@ -20,7 +21,8 @@ function configuration(): vscode.WorkspaceConfiguration {
 export function activate(context: vscode.ExtensionContext): PlotPanelApi {
   const history = new PlotHistory(configuration().get('historyLimit', 50));
   const capture = new PlotCapture(history, () => configuration().get('followLatest', true));
-  const provider = new PlotsViewProvider(context.extensionUri, history);
+  const thumbnails = new ThumbnailCache();
+  const provider = new PlotsViewProvider(context.extensionUri, history, thumbnails);
   const store = new PlotStore(vscode.Uri.joinPath(context.globalStorageUri, 'plots'));
 
   context.subscriptions.push(
@@ -44,12 +46,23 @@ export function activate(context: vscode.ExtensionContext): PlotPanelApi {
   // startup — only genuinely new figures do.
   const ready = (async () => {
     const snapshot = await store.load();
+    for (const [id, thumb] of snapshot.thumbnails) {
+      thumbnails.set(id, thumb);
+    }
     for (const entry of snapshot.entries) {
       history.add(entry, false);
     }
     history.select(snapshot.selectedId ?? history.entries.at(-1)?.id);
+    thumbnails.prune(new Set(history.entries.map((entry) => entry.id)));
     context.subscriptions.push(
-      store.attach(history),
+      store.attach(history, thumbnails),
+      new vscode.Disposable(
+        history.onDidChange((event) => {
+          if (event.type === 'evicted' || event.type === 'cleared') {
+            thumbnails.prune(new Set(history.entries.map((entry) => entry.id)));
+          }
+        }),
+      ),
       new vscode.Disposable(
         history.onDidChange((event) => {
           if (event.type === 'added' && configuration().get('autoReveal', true)) {
