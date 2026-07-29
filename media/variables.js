@@ -15,13 +15,6 @@
   const list = document.getElementById('list');
   const empty = document.getElementById('empty');
 
-  const CATEGORY_LABELS = {
-    data: 'DATA',
-    values: 'VALUES',
-    functions: 'FUNCTIONS',
-    classes: 'CLASSES',
-  };
-
   /** Label of the notebook the variables belong to; undefined when none. */
   let targetLabel = undefined;
   let totalRows = 0;
@@ -111,27 +104,27 @@
     return container;
   }
 
-  function makeSection(category) {
+  function makeSection(labelText) {
     const root = document.createElement('section');
     const header = document.createElement('div');
     header.className = 'section-header';
     const twistie = document.createElement('span');
     twistie.className = 'twistie expandable';
     const label = document.createElement('span');
-    label.textContent = CATEGORY_LABELS[category] || category;
+    label.textContent = labelText;
     header.appendChild(twistie);
     header.appendChild(label);
     const body = document.createElement('div');
     const applyCollapsed = () => {
-      const collapsed = collapsedSections.has(category);
+      const collapsed = collapsedSections.has(labelText);
       body.hidden = collapsed;
       twistie.textContent = collapsed ? '▸' : '▾';
     };
     header.addEventListener('click', () => {
-      if (collapsedSections.has(category)) {
-        collapsedSections.delete(category);
+      if (collapsedSections.has(labelText)) {
+        collapsedSections.delete(labelText);
       } else {
-        collapsedSections.add(category);
+        collapsedSections.add(labelText);
       }
       applyCollapsed();
     });
@@ -174,23 +167,21 @@
     updateEmpty(visible);
   }
 
-  function renderState(rows) {
+  function renderState(stateSections) {
     list.textContent = '';
     pending.clear();
     sections = [];
-    totalRows = rows.length;
-    let currentCategory = null;
-    let currentSection = null;
-    for (const row of rows) {
-      if (row.category !== currentCategory) {
-        currentCategory = row.category;
-        currentSection = makeSection(row.category);
-        sections.push(currentSection);
-        list.appendChild(currentSection.root);
+    totalRows = 0;
+    for (const stateSection of stateSections) {
+      const section = makeSection(stateSection.label);
+      sections.push(section);
+      list.appendChild(section.root);
+      for (const row of stateSection.rows) {
+        const item = makeRow(row, 0);
+        item.dataset.name = String(row.name).toLowerCase();
+        section.body.appendChild(item);
+        totalRows++;
       }
-      const item = makeRow(row, 0);
-      item.dataset.name = String(row.name).toLowerCase();
-      currentSection.body.appendChild(item);
     }
     applyFilter();
   }
@@ -200,7 +191,7 @@
     switch (message.type) {
       case 'state':
         targetLabel = message.target;
-        renderState(message.rows);
+        renderState(message.sections);
         document.body.classList.remove('busy');
         break;
       case 'busy':

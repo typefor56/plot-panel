@@ -1,10 +1,9 @@
 import * as assert from 'assert';
 import {
-  CATEGORY_ORDER,
   categorize,
   dataViewerType,
   formatVariableValue,
-  groupAndSort,
+  organizeVariables,
   typeHint,
   variableCount,
   variableSize,
@@ -121,25 +120,71 @@ suite('variables: categorization', () => {
     assert.strictEqual(dataViewerType('matplotlib.figure.Figure'), undefined);
   });
 
-  test('grouping keeps the section order and sorts names case-insensitively', () => {
-    const grouped = groupAndSort([
-      { name: 'zeta', type: 'int' },
-      { name: 'Alpha', type: 'str' },
-      { name: 'df', type: 'pandas.core.frame.DataFrame' },
-      { name: 'helper', type: 'function' },
-    ]);
+  test('kind grouping keeps section order and sorts names case-insensitively', () => {
+    const sections = organizeVariables(
+      [
+        { name: 'zeta', type: 'int', size: 0, changedAt: 0 },
+        { name: 'Alpha', type: 'str', size: 5, changedAt: 0 },
+        { name: 'df', type: 'pandas.core.frame.DataFrame', size: 100, changedAt: 0 },
+        { name: 'helper', type: 'function', size: 0, changedAt: 0 },
+      ],
+      'kind',
+      'name',
+    );
     assert.deepStrictEqual(
-      [...grouped.keys()],
-      ['data', 'values', 'functions'],
+      sections.map((section) => section.label),
+      ['DATA', 'VALUES', 'FUNCTIONS'],
       'empty categories are omitted, order is fixed',
     );
-    assert.ok(
-      [...grouped.keys()].every((key) => CATEGORY_ORDER.includes(key)),
-      'only known categories appear',
+    assert.deepStrictEqual(
+      sections[1]?.rows.map((row) => row.name),
+      ['Alpha', 'zeta'],
+    );
+  });
+
+  test('size grouping buckets by magnitude with exact thresholds', () => {
+    const variable = (name: string, size: number) => ({
+      name,
+      type: 'int',
+      size,
+      changedAt: 0,
+    });
+    const sections = organizeVariables(
+      [
+        variable('big', 100_000),
+        variable('nearlyBig', 99_999),
+        variable('medium', 1_000),
+        variable('small', 999),
+        variable('tiny', 0),
+      ],
+      'size',
+      'size',
     );
     assert.deepStrictEqual(
-      grouped.get('values')?.map((variable) => variable.name),
-      ['Alpha', 'zeta'],
+      sections.map((section) => [section.label, section.rows.map((row) => row.name)]),
+      [
+        ['LARGE', ['big']],
+        ['MEDIUM', ['nearlyBig', 'medium']],
+        ['SMALL', ['small', 'tiny']],
+      ],
+    );
+  });
+
+  test('sorting applies within sections: size desc and recent desc, ties by name', () => {
+    const variables = [
+      { name: 'b', type: 'int', size: 10, changedAt: 5 },
+      { name: 'a', type: 'int', size: 10, changedAt: 5 },
+      { name: 'c', type: 'int', size: 99, changedAt: 1 },
+    ];
+    const bySize = organizeVariables(variables, 'kind', 'size');
+    assert.deepStrictEqual(
+      bySize[0]?.rows.map((row) => row.name),
+      ['c', 'a', 'b'],
+    );
+    const byRecent = organizeVariables(variables, 'kind', 'recent');
+    assert.deepStrictEqual(
+      byRecent[0]?.rows.map((row) => row.name),
+      ['a', 'b', 'c'],
     );
   });
 });

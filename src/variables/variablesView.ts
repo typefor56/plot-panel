@@ -1,11 +1,11 @@
 import { randomBytes } from 'node:crypto';
 import * as vscode from 'vscode';
 import {
-  categorize,
   formatVariableValue,
+  organizeVariables,
   typeHint,
-  groupAndSort,
-  type VariableCategory,
+  variableCount,
+  variableSize,
 } from './categorize';
 import type { ChildVariable } from './inspect';
 import type { JupyterVariablesSource, KernelVariable } from './jupyterApi';
@@ -35,16 +35,29 @@ interface VariableRow {
   readonly name: string;
   readonly value: string;
   readonly typeHint: string;
-  readonly category: VariableCategory;
   readonly expandable: boolean;
   /** Eval path for children; equals the name at top level. */
   readonly expression: string;
 }
 
+/** A fetched variable with everything derived from it, computed once. */
+interface DecoratedVariable {
+  readonly name: string;
+  readonly type: string;
+  readonly size: number;
+  readonly changedAt: number;
+  readonly row: VariableRow;
+}
+
+interface WebviewSection {
+  readonly label: string;
+  readonly rows: readonly VariableRow[];
+}
+
 type ToVariablesWebviewMessage =
   | {
       readonly type: 'state';
-      readonly rows: readonly VariableRow[];
+      readonly sections: readonly WebviewSection[];
       readonly target: string | undefined;
     }
   | { readonly type: 'busy'; readonly busy: boolean }
@@ -72,7 +85,6 @@ function childRow(child: ChildVariable): VariableRow {
     name: child.name,
     value: truncate(formatVariableValue(child.type, child.value)),
     typeHint: typeHint(child.type, 0),
-    category: 'values',
     expandable: child.hasChildren,
     expression: child.expression,
   };
@@ -99,6 +111,9 @@ export class VariablesViewProvider implements vscode.WebviewViewProvider, vscode
   private stale = false;
   /** Whether the last refresh could use the Kernels API for expansion. */
   private kernelExpansion = false;
+  /** Last fetch, fully derived; re-grouping/sorting re-projects this cache. */
+  private decorated: readonly DecoratedVariable[] = [];
+  private targetName: string | undefined;
   /** Stable fallback: DataFrame columns parsed from df.info(), by expression. */
   private readonly summaryChildren = new Map<string, readonly VariableRow[]>();
   private readonly cancellation = new vscode.CancellationTokenSource();
@@ -221,23 +236,33 @@ export class VariablesViewProvider implements vscode.WebviewViewProvider, vscode
     const target = this.target;
     if (target === undefined) {
       this.summaryChildren.clear();
-      this.post({ type: 'state', rows: [], target: undefined });
+      this.decorated = [];
+      this.targetName = undefined;
+      this.post({ type: 'state', sections: [], target: undefined });
       return;
     }
     this.post({ type: 'busy', busy: true });
     const variables = await this.source.listVariables(target.uri);
     this.kernelExpansion = variables.length > 0 && (await this.source.canExpand(target.uri));
     this.summaryChildren.clear();
-    const rows: VariableRow[] = [];
-    for (const group of groupAndSort(variables).values()) {
-      for (const variable of group) {
-        rows.push(this.topLevelRow(variable));
-      }
-    }
-    this.post({ type: 'state', rows, target: targetLabel(target) });
+    this.decorated = variables.map((variable) => this.decorate(variable));
+    this.targetName = targetLabel(target);
+    this.renderFromCache();
   }
 
-  private topLevelRow(variable: KernelVariable): VariableRow {
+  /** Re-project the cached decorations (grouping/sorting changes, no kernel). */
+  private renderFromCache(): void {
+    if (this.view === undefined) {
+      return;
+    }
+    const sections = organizeVariables(this.decorated, 'kind', 'name').map((section) => ({
+      label: section.label,
+      rows: section.rows.map((decorated) => decorated.row),
+    }));
+    this.post({ type: 'state', sections, target: this.targetName });
+  }
+
+  private decorate(variable: KernelVariable): DecoratedVariable {
     let expandable = false;
     if (this.kernelExpansion) {
       expandable = variable.hasNamedChildren || variable.indexedChildrenCount > 0;
@@ -250,7 +275,6 @@ export class VariablesViewProvider implements vscode.WebviewViewProvider, vscode
             name: column.name,
             value: column.nonNull,
             typeHint: column.dtype,
-            category: 'values',
             expandable: false,
             expression: `${variable.expression}[${JSON.stringify(column.name)}]`,
           })),
@@ -258,13 +282,19 @@ export class VariablesViewProvider implements vscode.WebviewViewProvider, vscode
         expandable = true;
       }
     }
+    const count = variableCount(variable.type, variable.value, variable.indexedChildrenCount);
     return {
       name: variable.name,
-      value: truncate(formatVariableValue(variable.type, variable.value)),
-      typeHint: typeHint(variable.type, variable.indexedChildrenCount),
-      category: categorize(variable.type),
-      expandable,
-      expression: variable.expression,
+      type: variable.type,
+      size: variableSize(variable.type, variable.value, variable.indexedChildrenCount),
+      changedAt: 0,
+      row: {
+        name: variable.name,
+        value: truncate(formatVariableValue(variable.type, variable.value)),
+        typeHint: typeHint(variable.type, count),
+        expandable,
+        expression: variable.expression,
+      },
     };
   }
 

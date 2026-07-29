@@ -196,30 +196,73 @@ export function dataViewerType(type: string): string | undefined {
   return DATA_VIEWER_TYPES.has(short) ? short : undefined;
 }
 
+export type VariablesGrouping = 'kind' | 'size';
+export type VariablesSorting = 'name' | 'size' | 'recent';
+
+export interface OrganizedSection<T> {
+  readonly label: string;
+  readonly rows: readonly T[];
+}
+
+interface Organizable {
+  readonly name: string;
+  readonly type: string;
+  /** Element count; 0 = unknown (see variableSize). */
+  readonly size: number;
+  /** Session timestamp of the last observed change; 0 = never observed. */
+  readonly changedAt: number;
+}
+
+const SIZE_LARGE = 100_000;
+const SIZE_MEDIUM = 1_000;
+
+function comparatorFor<T extends Organizable>(sorting: VariablesSorting): (a: T, b: T) => number {
+  const byName = (a: T, b: T): number =>
+    a.name.toLowerCase().localeCompare(b.name.toLowerCase());
+  switch (sorting) {
+    case 'name':
+      return byName;
+    case 'size':
+      return (a, b) => b.size - a.size || byName(a, b);
+    case 'recent':
+      return (a, b) => b.changedAt - a.changedAt || byName(a, b);
+  }
+}
+
 /**
- * Group by category in the fixed section order (empty categories omitted),
- * each group sorted by name, case-insensitive.
+ * Group into ordered sections (empty ones omitted) and sort within each.
+ * 'kind' = the Positron categories; 'size' = LARGE (≥100k elements) /
+ * MEDIUM (≥1k) / SMALL magnitude buckets. Sorting applies within sections
+ * under both groupings.
  */
-export function groupAndSort<T extends { readonly name: string; readonly type: string }>(
+export function organizeVariables<T extends Organizable>(
   variables: readonly T[],
-): ReadonlyMap<VariableCategory, readonly T[]> {
-  const buckets = new Map<VariableCategory, T[]>();
-  for (const variable of variables) {
-    const category = categorize(variable.type);
-    const bucket = buckets.get(category);
-    if (bucket === undefined) {
-      buckets.set(category, [variable]);
-    } else {
-      bucket.push(variable);
+  grouping: VariablesGrouping,
+  sorting: VariablesSorting,
+): readonly OrganizedSection<T>[] {
+  const compare = comparatorFor<T>(sorting);
+  const sections: OrganizedSection<T>[] = [];
+  if (grouping === 'size') {
+    const buckets: readonly (readonly [string, (variable: T) => boolean])[] = [
+      ['LARGE', (variable) => variable.size >= SIZE_LARGE],
+      ['MEDIUM', (variable) => variable.size >= SIZE_MEDIUM && variable.size < SIZE_LARGE],
+      ['SMALL', (variable) => variable.size < SIZE_MEDIUM],
+    ];
+    for (const [label, matches] of buckets) {
+      const rows = variables.filter(matches).sort(compare);
+      if (rows.length > 0) {
+        sections.push({ label, rows });
+      }
     }
+    return sections;
   }
-  const result = new Map<VariableCategory, readonly T[]>();
   for (const category of CATEGORY_ORDER) {
-    const bucket = buckets.get(category);
-    if (bucket !== undefined) {
-      bucket.sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
-      result.set(category, bucket);
+    const rows = variables
+      .filter((variable) => categorize(variable.type) === category)
+      .sort(compare);
+    if (rows.length > 0) {
+      sections.push({ label: CATEGORY_LABELS[category], rows });
     }
   }
-  return result;
+  return sections;
 }
