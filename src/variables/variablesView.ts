@@ -61,7 +61,7 @@ type FromVariablesWebviewMessage =
   | { readonly type: 'expand'; readonly requestId: number; readonly expression: string };
 
 const REFRESH_DEBOUNCE_MS = 500;
-const VALUE_CAP = 200;
+const VALUE_CAP = 80;
 
 function truncate(value: string): string {
   return value.length > VALUE_CAP ? `${value.slice(0, VALUE_CAP - 1)}…` : value;

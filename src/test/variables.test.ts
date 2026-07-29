@@ -2,12 +2,16 @@ import * as assert from 'assert';
 import {
   CATEGORY_ORDER,
   categorize,
+  dataViewerType,
   formatVariableValue,
   groupAndSort,
   typeHint,
+  variableCount,
+  variableSize,
 } from '../variables/categorize';
 import { INSPECT_SENTINEL, buildInspectCode, parseInspectReply } from '../variables/inspect';
 import { parseDataFrameSummary } from '../variables/summary';
+import * as fx from './reprFixtures';
 
 suite('variables: categorization', () => {
   test('pandas/polars tables are DATA', () => {
@@ -61,23 +65,60 @@ suite('variables: categorization', () => {
     assert.strictEqual(typeHint('numpy.int64', 245), 'int64 (245)');
   });
 
-  test('values render Positron-style: DataFrame shape, unwrapped arrays, one line', () => {
-    const dataFrameRepr =
-      '       vru+line  call_id\n0        AA0101    33116\n...\n\n[444448 rows x 24 columns]';
+  test('values render Positron-style: DataFrame shape only, elided items, one line', () => {
+    // The shape alone — the right-aligned type hint already names the type.
     assert.strictEqual(
-      formatVariableValue('pandas.core.frame.DataFrame', dataFrameRepr),
-      '[444448 rows x 24 columns] pandas.DataFrame',
+      formatVariableValue('pandas.core.frame.DataFrame', fx.DF_LARGE),
+      '[200000 rows x 7 columns]',
     );
     // Without the shape tail (tiny frame), the repr is flattened instead.
+    assert.strictEqual(formatVariableValue('pandas.core.frame.DataFrame', '   a\n0  1'), 'a 0 1');
+    // Series show an elided preview of their values.
     assert.strictEqual(
-      formatVariableValue('pandas.core.frame.DataFrame', '   a\n0  1'),
-      'a 0 1',
+      formatVariableValue('pandas.core.series.Series', fx.S_SMALL_NAMED),
+      '[5, 7, 2]',
     );
-    assert.strictEqual(
-      formatVariableValue('numpy.ndarray', 'array([ 5,  7,\n        2])'),
-      '[ 5, 7, 2]',
-    );
+    const largeSeries = formatVariableValue('pandas.core.series.Series', fx.S_INT_LARGE);
+    assert.ok(largeSeries.startsWith('[0, 1,'), largeSeries);
+    assert.ok(largeSeries.includes('…'), 'gap is visible');
+    assert.ok(largeSeries.endsWith('99999]'), largeSeries);
+    // Collections keep their own brackets and elide long contents.
+    assert.strictEqual(formatVariableValue('numpy.ndarray', fx.ND_1D), '[5, 7, 2, 3, 3, 1, 23, 2, 11]');
+    const bigList = formatVariableValue('list', fx.LIST_1000);
+    assert.ok(bigList.startsWith('[0, 1, 2,'), bigList);
+    assert.ok(bigList.endsWith('…]'), 'SafeRepr tail cut stays visible');
+    const dict = formatVariableValue('dict', fx.DICT_SMALL);
+    assert.ok(dict.startsWith("{'january': 31,"), dict);
+    // Everything else: whitespace-collapsed repr.
     assert.strictEqual(formatVariableValue('str', "'./data/calls/'"), "'./data/calls/'");
+  });
+
+  test('variableSize derives element counts from the stable data only', () => {
+    assert.strictEqual(variableSize('pandas.core.frame.DataFrame', fx.DF_LARGE, 0), 1_400_000);
+    assert.strictEqual(variableSize('pandas.core.series.Series', fx.S_INT_LARGE, 0), 100_000);
+    assert.strictEqual(variableSize('list', fx.LIST_1000, 1000), 1000, 'Jupyter count wins');
+    assert.strictEqual(variableSize('numpy.ndarray', fx.ND_1D, 0), 9, 'complete repr counted');
+    assert.strictEqual(variableSize('numpy.ndarray', fx.ND_BIG, 0), 0, 'truncated repr unknown');
+    assert.strictEqual(variableSize('str', "'./data/calls/'", 0), 13);
+    assert.strictEqual(variableSize('int', '50', 0), 0);
+  });
+
+  test('variableCount feeds the hint; DataFrames and strings stay bare', () => {
+    assert.strictEqual(variableCount('pandas.core.frame.DataFrame', fx.DF_LARGE, 0), 0);
+    assert.strictEqual(variableCount('str', "'x'", 0), 0);
+    assert.strictEqual(variableCount('pandas.core.series.Series', fx.S_DATETIME, 0), 200);
+    assert.strictEqual(variableCount('dict', fx.DICT_SMALL, 0), 4);
+  });
+
+  test('dataViewerType maps to the viewers’ exact dataTypes members', () => {
+    assert.strictEqual(dataViewerType('pandas.core.frame.DataFrame'), 'DataFrame');
+    assert.strictEqual(dataViewerType('pandas.core.series.Series'), 'Series');
+    assert.strictEqual(dataViewerType('numpy.ndarray'), 'ndarray');
+    assert.strictEqual(dataViewerType('list'), 'list');
+    assert.strictEqual(dataViewerType('dict'), 'dict');
+    assert.strictEqual(dataViewerType('str'), undefined);
+    assert.strictEqual(dataViewerType('set'), undefined);
+    assert.strictEqual(dataViewerType('matplotlib.figure.Figure'), undefined);
   });
 
   test('grouping keeps the section order and sorts names case-insensitively', () => {

@@ -309,7 +309,8 @@ export function elideItems(
     used += item.length + separatorCost;
   }
   const tail: string[] = [];
-  const tailFloor = Math.max(headLimit === items.length ? head.length : headLimit, head.length);
+  // Tail items must come from after the gap; with no gap, anything past the head.
+  const tailFloor = gapAt === undefined ? head.length : Math.max(gapAt, head.length);
   for (let i = items.length - 1; i >= tailFloor; i--) {
     const item = items[i];
     if (item === undefined || used + item.length + separatorCost > budget) {
