@@ -1,0 +1,92 @@
+/* All colors come from VS Code theme variables: the view must be
+   indistinguishable from a built-in panel in light and dark themes. */
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+  color: var(--vscode-foreground);
+  background-color: var(--vscode-sideBar-background, var(--vscode-editor-background));
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size);
+}
+
+#stage {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px;
+}
+
+#figure {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+#empty {
+  margin: 0 12px;
+  text-align: center;
+  color: var(--vscode-descriptionForeground);
+}
+
+#notice {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 4px 8px;
+  font-size: 0.9em;
+  color: var(--vscode-inputValidation-warningForeground, var(--vscode-foreground));
+  background-color: var(--vscode-inputValidation-warningBackground, transparent);
+  border-top: 1px solid var(--vscode-inputValidation-warningBorder, var(--vscode-widget-border, transparent));
+}
+
+#strip {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 6px 8px;
+  border-top: 1px solid var(--vscode-sideBarSectionHeader-border, var(--vscode-widget-border, transparent));
+  background-color: var(--vscode-sideBarSectionHeader-background, transparent);
+}
+
+.thumb {
+  flex: 0 0 auto;
+  width: 64px;
+  height: 48px;
+  padding: 2px;
+  margin: 0;
+  border: 1px solid var(--vscode-widget-border, transparent);
+  border-radius: 3px;
+  background-color: var(--vscode-editorWidget-background, transparent);
+  cursor: pointer;
+}
+
+.thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.thumb:hover {
+  border-color: var(--vscode-focusBorder);
+}
+
+.thumb.selected {
+  border-color: var(--vscode-focusBorder);
+  outline: 1px solid var(--vscode-focusBorder);
+}
+
+.thumb:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: 1px;
+}

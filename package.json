@@ -38,6 +38,68 @@
         }
       ]
     },
+    "commands": [
+      {
+        "command": "plotPanel.previousPlot",
+        "title": "Previous Plot",
+        "category": "Plot Panel",
+        "icon": "$(chevron-left)"
+      },
+      {
+        "command": "plotPanel.nextPlot",
+        "title": "Next Plot",
+        "category": "Plot Panel",
+        "icon": "$(chevron-right)"
+      },
+      {
+        "command": "plotPanel.savePlot",
+        "title": "Save Plot As…",
+        "category": "Plot Panel",
+        "icon": "$(save)"
+      },
+      {
+        "command": "plotPanel.clearHistory",
+        "title": "Clear Plot History",
+        "category": "Plot Panel",
+        "icon": "$(clear-all)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "plotPanel.previousPlot",
+          "when": "view == plotPanel.plots",
+          "group": "navigation@1"
+        },
+        {
+          "command": "plotPanel.nextPlot",
+          "when": "view == plotPanel.plots",
+          "group": "navigation@2"
+        },
+        {
+          "command": "plotPanel.savePlot",
+          "when": "view == plotPanel.plots",
+          "group": "navigation@3"
+        },
+        {
+          "command": "plotPanel.clearHistory",
+          "when": "view == plotPanel.plots",
+          "group": "navigation@4"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "plotPanel.previousPlot",
+        "key": "left",
+        "when": "focusedView == plotPanel.plots"
+      },
+      {
+        "command": "plotPanel.nextPlot",
+        "key": "right",
+        "when": "focusedView == plotPanel.plots"
+      }
+    ],
     "configuration": {
       "title": "Plot Panel",
       "properties": {
