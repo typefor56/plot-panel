@@ -9,6 +9,12 @@ import {
 } from './categorize';
 import type { ChildVariable } from './inspect';
 import type { JupyterVariablesSource, KernelVariable } from './jupyterApi';
+import {
+  parseCollectionRepr,
+  parseDataFrameRepr,
+  parseSeriesRepr,
+  splitDictItem,
+} from './reprParse';
 import { parseDataFrameSummary } from './summary';
 import type { VariablesOptions } from './variablesOptions';
 
@@ -39,7 +45,21 @@ interface VariableRow {
   readonly expandable: boolean;
   /** Eval path for children; equals the name at top level. */
   readonly expression: string;
+  /** 'ellipsis' renders the truncation marker row of a preview table. */
+  readonly kind: 'variable' | 'ellipsis';
+  /** Set when the row can open in the data viewer (wired separately). */
+  readonly viewerType: string | undefined;
 }
+
+const ELLIPSIS_ROW: VariableRow = {
+  name: '',
+  value: '⋯',
+  typeHint: '',
+  expandable: false,
+  expression: '',
+  kind: 'ellipsis',
+  viewerType: undefined,
+};
 
 /** A fetched variable with everything derived from it, computed once. */
 interface DecoratedVariable {
@@ -88,6 +108,21 @@ function childRow(child: ChildVariable): VariableRow {
     typeHint: typeHint(child.type, 0),
     expandable: child.hasChildren,
     expression: child.expression,
+    kind: 'variable',
+    viewerType: undefined,
+  };
+}
+
+/** One index | value line of a preview table (never expandable). */
+function tableRow(name: string, value: string): VariableRow {
+  return {
+    name,
+    value: truncate(value),
+    typeHint: '',
+    expandable: false,
+    expression: '',
+    kind: 'variable',
+    viewerType: undefined,
   };
 }
 
@@ -115,8 +150,13 @@ export class VariablesViewProvider implements vscode.WebviewViewProvider, vscode
   /** Last fetch, fully derived; re-grouping/sorting re-projects this cache. */
   private decorated: readonly DecoratedVariable[] = [];
   private targetName: string | undefined;
-  /** Stable fallback: DataFrame columns parsed from df.info(), by expression. */
-  private readonly summaryChildren = new Map<string, readonly VariableRow[]>();
+  /**
+   * Stable-tier expansion: preview tables and column lists parsed from the
+   * reprs/df.info at decorate time, keyed by expression (levels 1 and 2).
+   */
+  private readonly fallbackChildren = new Map<string, readonly VariableRow[]>();
+  /** Per-notebook change tracking for the Recent sort (session-scoped). */
+  private readonly recency = new Map<string, Map<string, { signature: string; changedAt: number }>>();
   private readonly cancellation = new vscode.CancellationTokenSource();
   private readonly disposables: vscode.Disposable[] = [];
 
@@ -153,6 +193,7 @@ export class VariablesViewProvider implements vscode.WebviewViewProvider, vscode
         }
       }),
       vscode.workspace.onDidCloseNotebookDocument((notebook) => {
+        this.recency.delete(notebook.uri.toString());
         if (this.target === notebook) {
           this.target = undefined;
           this.scheduleRefresh(0);
@@ -240,7 +281,7 @@ export class VariablesViewProvider implements vscode.WebviewViewProvider, vscode
     this.stale = false;
     const target = this.target;
     if (target === undefined) {
-      this.summaryChildren.clear();
+      this.fallbackChildren.clear();
       this.decorated = [];
       this.targetName = undefined;
       this.post({ type: 'state', sections: [], target: undefined });
@@ -249,10 +290,50 @@ export class VariablesViewProvider implements vscode.WebviewViewProvider, vscode
     this.post({ type: 'busy', busy: true });
     const variables = await this.source.listVariables(target.uri);
     this.kernelExpansion = variables.length > 0 && (await this.source.canExpand(target.uri));
-    this.summaryChildren.clear();
-    this.decorated = variables.map((variable) => this.decorate(variable));
+    this.fallbackChildren.clear();
+    const changed = this.trackRecency(target.uri.toString(), variables);
+    this.decorated = variables.map((variable) =>
+      this.decorate(variable, changed.get(variable.name) ?? 0),
+    );
     this.targetName = targetLabel(target);
     this.renderFromCache();
+  }
+
+  /**
+   * Update the per-notebook change map: a variable is "recent" when it is
+   * new or its signature moved since the previous fetch. The signature
+   * includes the DataFrame summary because a mutated wide frame can keep an
+   * identical repr head/tail while df.info's counts move.
+   */
+  private trackRecency(
+    uriKey: string,
+    variables: readonly KernelVariable[],
+  ): ReadonlyMap<string, number> {
+    let known = this.recency.get(uriKey);
+    if (known === undefined) {
+      known = new Map();
+      this.recency.set(uriKey, known);
+    }
+    const now = Date.now();
+    const seen = new Set<string>();
+    const changedAt = new Map<string, number>();
+    for (const variable of variables) {
+      seen.add(variable.name);
+      const signature = `${variable.type} ${variable.value} ${variable.summary ?? ''}`;
+      const previous = known.get(variable.name);
+      if (previous === undefined || previous.signature !== signature) {
+        known.set(variable.name, { signature, changedAt: now });
+        changedAt.set(variable.name, now);
+      } else {
+        changedAt.set(variable.name, previous.changedAt);
+      }
+    }
+    for (const name of [...known.keys()]) {
+      if (!seen.has(name)) {
+        known.delete(name);
+      }
+    }
+    return changedAt;
   }
 
   /** Re-project the cached decorations (grouping/sorting changes, no kernel). */
@@ -271,40 +352,121 @@ export class VariablesViewProvider implements vscode.WebviewViewProvider, vscode
     this.post({ type: 'state', sections, target: this.targetName });
   }
 
-  private decorate(variable: KernelVariable): DecoratedVariable {
-    let expandable = false;
-    if (this.kernelExpansion) {
-      expandable = variable.hasNamedChildren || variable.indexedChildrenCount > 0;
-    } else if (variable.summary !== undefined) {
-      const columns = parseDataFrameSummary(variable.summary);
-      if (columns !== undefined) {
-        this.summaryChildren.set(
-          variable.expression,
-          columns.map((column) => ({
-            name: column.name,
-            value: column.nonNull,
-            typeHint: column.dtype,
-            expandable: false,
-            expression: `${variable.expression}[${JSON.stringify(column.name)}]`,
-          })),
-        );
-        expandable = true;
-      }
-    }
+  private decorate(variable: KernelVariable, changedAt: number): DecoratedVariable {
+    const expandable = this.kernelExpansion
+      ? variable.hasNamedChildren || variable.indexedChildrenCount > 0
+      : this.buildFallback(variable);
     const count = variableCount(variable.type, variable.value, variable.indexedChildrenCount);
     return {
       name: variable.name,
       type: variable.type,
       size: variableSize(variable.type, variable.value, variable.indexedChildrenCount),
-      changedAt: 0,
+      changedAt,
       row: {
         name: variable.name,
         value: truncate(formatVariableValue(variable.type, variable.value)),
         typeHint: typeHint(variable.type, count),
         expandable,
         expression: variable.expression,
+        kind: 'variable',
+        viewerType: undefined,
       },
     };
+  }
+
+  /**
+   * Stable tier: precompute this variable's expansion from what the reprs
+   * and df.info already show. Returns whether the row is expandable.
+   * Everything lands in fallbackChildren, keyed by expression:
+   * - DataFrame → its columns (level 1), each column with its own
+   *   index | value preview table (level 2) when the repr grid parsed;
+   * - Series → index | value pairs;
+   * - list/tuple/set/ndarray → position | item; dict → key | value.
+   */
+  private buildFallback(variable: KernelVariable): boolean {
+    const type = variable.type;
+    const short = type.slice(type.lastIndexOf('.') + 1);
+    if (short === 'DataFrame') {
+      const columns =
+        variable.summary !== undefined ? parseDataFrameSummary(variable.summary) : undefined;
+      if (columns === undefined) {
+        return false;
+      }
+      const grid = parseDataFrameRepr(variable.value);
+      const columnRows = columns.map((column): VariableRow => {
+        const expression = `${variable.expression}[${JSON.stringify(column.name)}]`;
+        let expandable = false;
+        const gridIndex = grid?.columns.indexOf(column.name) ?? -1;
+        if (grid !== undefined && gridIndex !== -1 && column.name !== '...') {
+          const table = grid.rows.map((row) => tableRow(row.index, row.cells[gridIndex] ?? ''));
+          if (grid.gapAt !== undefined) {
+            table.splice(grid.gapAt, 0, ELLIPSIS_ROW);
+          }
+          this.fallbackChildren.set(expression, table);
+          expandable = true;
+        }
+        return {
+          name: column.name,
+          value: column.nonNull,
+          typeHint: column.dtype,
+          expandable,
+          expression,
+          kind: 'variable',
+          viewerType: undefined,
+        };
+      });
+      this.fallbackChildren.set(variable.expression, columnRows);
+      return true;
+    }
+    if (short === 'Series') {
+      const parsed = parseSeriesRepr(variable.value);
+      if (parsed === undefined || parsed.pairs.length === 0) {
+        return false;
+      }
+      const table = parsed.pairs.map(([index, value]) => tableRow(index, value));
+      if (parsed.gapAt !== undefined) {
+        table.splice(parsed.gapAt, 0, ELLIPSIS_ROW);
+      }
+      this.fallbackChildren.set(variable.expression, table);
+      return true;
+    }
+    if (short === 'dict') {
+      const parsed = parseCollectionRepr(variable.value, short);
+      if (parsed === undefined || parsed.items.length === 0) {
+        return false;
+      }
+      const table = parsed.items.map((item, position) => {
+        const split = splitDictItem(item);
+        return split === undefined ? tableRow(String(position), item) : tableRow(split[0], split[1]);
+      });
+      if (parsed.gapAt !== undefined) {
+        table.splice(parsed.gapAt, 0, ELLIPSIS_ROW);
+      }
+      this.fallbackChildren.set(variable.expression, table);
+      return true;
+    }
+    if (
+      short === 'list' ||
+      short === 'tuple' ||
+      short === 'set' ||
+      short === 'frozenset' ||
+      short === 'ndarray'
+    ) {
+      const parsed = parseCollectionRepr(variable.value, short);
+      if (parsed === undefined || parsed.items.length === 0) {
+        return false;
+      }
+      // Positions after a mid-repr gap (numpy) are unknown: leave them blank.
+      const table = parsed.items.map((item, position) =>
+        tableRow(parsed.gapAt === undefined || position < parsed.gapAt ? String(position) : '', item),
+      );
+      if (parsed.gapAt !== undefined) {
+        table.splice(parsed.gapAt, 0, ELLIPSIS_ROW);
+      }
+      this.fallbackChildren.set(variable.expression, table);
+      return true;
+    }
+    return false;
   }
 
   private onMessage(message: FromVariablesWebviewMessage): void {
@@ -321,9 +483,9 @@ export class VariablesViewProvider implements vscode.WebviewViewProvider, vscode
 
   private expand(requestId: number, expression: string): void {
     if (!this.kernelExpansion) {
-      const columns = this.summaryChildren.get(expression);
-      if (columns !== undefined) {
-        this.post({ type: 'children', requestId, rows: columns });
+      const rows = this.fallbackChildren.get(expression);
+      if (rows !== undefined) {
+        this.post({ type: 'children', requestId, rows });
       } else {
         this.post({
           type: 'childrenError',

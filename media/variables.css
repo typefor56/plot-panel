@@ -129,6 +129,13 @@ body.busy #list {
   color: var(--vscode-descriptionForeground);
 }
 
+.var-row.var-ellipsis {
+  justify-content: center;
+  color: var(--vscode-descriptionForeground);
+  cursor: default;
+  user-select: none;
+}
+
 .var-note {
   padding: 2px 8px 2px 20px;
   font-style: italic;

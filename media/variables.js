@@ -37,6 +37,16 @@
     const container = document.createElement('div');
     container.className = 'var-item';
 
+    if (row.kind === 'ellipsis') {
+      const gap = document.createElement('div');
+      gap.className = 'var-row var-ellipsis';
+      gap.textContent = '⋯';
+      gap.title = 'Truncated preview — open in the Data Viewer for full data';
+      gap.setAttribute('aria-hidden', 'true');
+      container.appendChild(gap);
+      return container;
+    }
+
     const line = document.createElement('div');
     line.className = 'var-row';
     line.setAttribute('role', 'treeitem');
