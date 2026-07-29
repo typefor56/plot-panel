@@ -22,8 +22,6 @@
     classes: 'CLASSES',
   };
 
-  /** Whether the host can expand rows (Kernels API available). */
-  let expandable = false;
   /** Label of the notebook the variables belong to; undefined when none. */
   let targetLabel = undefined;
   let totalRows = 0;
@@ -76,7 +74,7 @@
 
     container.appendChild(line);
 
-    if (expandable && row.expandable) {
+    if (row.expandable) {
       line.classList.add('expandable-row');
       twistie.classList.add('expandable');
       line.setAttribute('aria-expanded', 'false');
@@ -201,7 +199,6 @@
     const message = event.data;
     switch (message.type) {
       case 'state':
-        expandable = message.expandable === true;
         targetLabel = message.target;
         renderState(message.rows);
         document.body.classList.remove('busy');

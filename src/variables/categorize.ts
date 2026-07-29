@@ -4,9 +4,11 @@
  * unit-tested against fixture arrays.
  *
  * The rule works on the fully-qualified Python type name and matches its last
- * dotted segment: table-like containers (pandas/polars/numpy) are DATA,
+ * dotted segment: pandas/polars tables (DataFrame, Series, Index) are DATA,
  * callables are FUNCTIONS, metaclass instances (class definitions) are
- * CLASSES, everything else is VALUES.
+ * CLASSES, everything else — numpy arrays included, as in Positron — is
+ * VALUES. Note that `jupyter.listVariables` excludes functions, classes and
+ * modules kernel-side, so those sections only fill from richer sources.
  */
 
 export type VariableCategory = 'data' | 'values' | 'functions' | 'classes';
@@ -25,7 +27,10 @@ export const CATEGORY_LABELS: Readonly<Record<VariableCategory, string>> = {
   classes: 'CLASSES',
 };
 
-const DATA_TYPES = new Set(['DataFrame', 'Series', 'Index', 'ndarray']);
+const DATA_TYPES = new Set(['DataFrame', 'Series', 'Index']);
+
+/** Types whose hint keeps the root package ("pandas.DataFrame", "numpy.ndarray"). */
+const PREFIXED_TYPES = new Set(['DataFrame', 'Series', 'Index', 'ndarray']);
 
 const FUNCTION_TYPES = new Set([
   'function',
@@ -67,8 +72,36 @@ export function categorize(type: string): VariableCategory {
 export function typeHint(type: string, indexedChildrenCount: number): string {
   const short = lastSegment(type);
   const root = type.includes('.') ? type.slice(0, type.indexOf('.')) : '';
-  const name = DATA_TYPES.has(short) && root.length > 0 ? `${root}.${short}` : short;
+  const name = PREFIXED_TYPES.has(short) && root.length > 0 ? `${root}.${short}` : short;
   return indexedChildrenCount > 0 ? `${name} (${indexedChildrenCount})` : name;
+}
+
+const ROWS_X_COLUMNS = /\[\d[\d,]* rows x \d+ columns\]/;
+
+/**
+ * Positron-style value column. DataFrame reprs carry their shape as a
+ * trailing "[N rows x M columns]" line (pandas prints it whenever the output
+ * is truncated): surface that instead of the flattened table head. ndarray
+ * reprs lose their "array(...)" wrapper. Everything else is the repr with
+ * whitespace collapsed to one line.
+ */
+export function formatVariableValue(type: string, raw: string): string {
+  const short = lastSegment(type);
+  if (short === 'DataFrame') {
+    const match = ROWS_X_COLUMNS.exec(raw);
+    if (match !== null) {
+      const root = type.includes('.') ? `${type.slice(0, type.indexOf('.'))}.` : '';
+      return `${match[0]} ${root}DataFrame`;
+    }
+  }
+  let value = raw.replace(/\s+/g, ' ').trim();
+  if (short === 'ndarray' && value.startsWith('array(')) {
+    value = value.slice('array('.length);
+    if (value.endsWith(')')) {
+      value = value.slice(0, -1);
+    }
+  }
+  return value;
 }
 
 /**

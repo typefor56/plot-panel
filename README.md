@@ -82,18 +82,35 @@ feature carry no code, and the actions are greyed out.
 
 ## The Jupyter Variables view
 
-After each execution (and on demand via the refresh button), the view lists
-the kernel's top-level variables — Python kernels only — grouped like
-Positron: **DATA** (DataFrame, Series, Index, ndarray), **FUNCTIONS**
-(callables), **CLASSES** (class definitions), **VALUES** (everything else).
-Two main columns, name and value, plus a right-aligned type hint; the filter
-field narrows by name; section headers collapse.
+After each execution finishes (and on demand via the refresh button), the
+view lists the kernel's top-level variables — Python kernels only — grouped
+like Positron: **DATA** (pandas/polars DataFrame, Series, Index), **VALUES**
+(everything else, numpy arrays included, as in Positron), **FUNCTIONS** and
+**CLASSES**. Two main columns, name and value, plus a right-aligned type
+hint; DataFrames display their shape (`[444448 rows x 24 columns]
+pandas.DataFrame`); the filter field narrows by name; section headers
+collapse. Note that `jupyter.listVariables` excludes functions, classes and
+modules kernel-side, so those two sections stay empty with the stable data
+source.
 
-Expanding a row into its children (the columns of a DataFrame, the keys of a
-dict, the attributes of an object) requires the Jupyter extension's Kernels
-API, which is currently reserved for allow-listed publishers on stable VS
-Code; it works on Insiders and in the test host. Where the API is denied the
-chevrons are simply hidden and the flat list remains fully functional.
+Row expansion has two tiers:
+
+- **Everywhere (stable included)**: a DataFrame expands into its columns —
+  name, non-null count, dtype — parsed from the `df.info()` summary that the
+  Jupyter extension computes. pandas omits that table for frames wider than
+  100 columns, which then stay unexpandable.
+- **Full depth** (column values row by row, dict keys, object attributes,
+  recursively) requires the Jupyter extension's Kernels API, which is
+  currently reserved for allow-listed publishers on stable VS Code; it works
+  on Insiders and in the test host. Where the API is denied those deeper
+  chevrons are simply hidden.
+
+**Performance**: refreshing asks the kernel to describe every variable
+(that is Jupyter's own introspection script running on the kernel, with
+DataFrame summaries cached per execution). The view only refreshes when it
+is visible and only when an execution ends, coalescing bursts into a single
+fetch. If a huge namespace still makes it noticeable, set
+`plotPanel.variablesAutoRefresh` to `false` and use the refresh button.
 
 ## Settings
 
@@ -102,6 +119,7 @@ chevrons are simply hidden and the flat list remains fully functional.
 | `plotPanel.autoReveal` | `true` | Reveal the Plots view (without stealing focus) when a new figure arrives. |
 | `plotPanel.followLatest` | `true` | Always select the most recent figure. When disabled, the current selection is kept while new figures accumulate. |
 | `plotPanel.historyLimit` | `50` | Maximum number of figures kept; the oldest are evicted first. |
+| `plotPanel.variablesAutoRefresh` | `true` | Refresh the Jupyter Variables view when a cell finishes executing. Disable on heavy notebooks to refresh only with the button. |
 
 ### A note on `jupyter.generateSVGPlots`
 
@@ -143,9 +161,10 @@ they act on the gallery selection.
 - **The views cannot move themselves to the secondary sidebar.** The VS Code
   API has no way to place a view there; the one-time drag described above is
   required.
-- **Variables are Python-only, and child expansion needs the Kernels API.**
-  Other kernels show nothing, and on stable VS Code the publisher-gated
-  Jupyter Kernels API keeps the rows unexpandable (see above).
+- **Variables are Python-only, and deep expansion needs the Kernels API.**
+  Other kernels show nothing; on stable VS Code the publisher-gated Jupyter
+  Kernels API limits expansion to DataFrame columns (see above), and
+  functions/classes are filtered out by `jupyter.listVariables` itself.
 - **Figures produced before the extension host finished starting** (very early
   in a session) are not captured; capture is event-based, not retroactive over
   pre-existing outputs.

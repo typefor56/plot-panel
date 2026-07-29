@@ -425,6 +425,11 @@
           "minimum": 1,
           "maximum": 500,
           "description": "Maximum number of figures kept in the history. Oldest figures are evicted first."
+        },
+        "plotPanel.variablesAutoRefresh": {
+          "type": "boolean",
+          "default": true,
+          "description": "Refresh the Jupyter Variables view automatically when a cell finishes executing. Refreshing asks the kernel to describe every variable, which can be noticeable with very large DataFrames; disable to refresh only with the button."
         }
       }
     }

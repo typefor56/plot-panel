@@ -23,6 +23,9 @@ export interface KernelVariable {
   readonly name: string;
   readonly value: string;
   readonly type: string;
+  /** Eval path (root + property chain); equals the name at top level. */
+  readonly expression: string;
+  /** For pandas DataFrames: the text of df.info() (empty otherwise). */
   readonly summary?: string;
   readonly hasNamedChildren: boolean;
   readonly indexedChildrenCount: number;
@@ -47,10 +50,11 @@ function toKernelVariable(item: unknown): KernelVariable | undefined {
     name,
     value: typeof variable['value'] === 'string' ? variable['value'] : '',
     type: typeof variable['type'] === 'string' ? variable['type'] : '',
+    expression: typeof variable['expression'] === 'string' ? variable['expression'] : name,
     hasNamedChildren: outer['hasNamedChildren'] === true,
     indexedChildrenCount:
       typeof outer['indexedChildrenCount'] === 'number' ? outer['indexedChildrenCount'] : 0,
-    ...(typeof summary === 'string' ? { summary } : {}),
+    ...(typeof summary === 'string' && summary.length > 0 ? { summary } : {}),
   };
 }
 

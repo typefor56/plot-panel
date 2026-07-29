@@ -124,19 +124,34 @@ Toute violation est un échec du projet, pas un compromis acceptable :
   capturé en repli : les cellules bougent, le texte est plus fiable ; best
   effort assumé avec erreurs explicites.
 - **Variables en deux couches** : `jupyter.listVariables` (commande contribuée
-  stable, top-level uniquement, pull) partout ; expansion des enfants via
+  stable, top-level uniquement, pull) partout ; expansion **profonde** via
   l'API Kernels (`@vscode/jupyter-extension`, devDependency types-only —
   l'arbre de prod reste vide). Cette API est **verrouillée par publisher** :
   accordée en `extensionMode === Test` et sur Insiders, refusée (avec toast
   d'erreur Jupyter) aux publishers inconnus sur stable. La sonde ne tourne
-  donc que là où l'accès est possible ; ailleurs les chevrons sont masqués et
-  aucun toast n'est déclenché. `jupyter.listVariables` n'existe pas dans
-  l'hôte de test (rejet « command not found », pas `[]`) : l'adaptateur
-  try/catch tout, et seuls `categorize`/`inspect` (purs) sont testés.
+  donc que là où l'accès est possible ; ailleurs, **repli stable** : le champ
+  `summary` que Jupyter attache aux DataFrames (= sortie de `df.info()`,
+  cachée par executionCount) est parsé (`variables/summary.ts`) pour offrir
+  un niveau d'expansion — colonnes avec non-null count et dtype (pandas omet
+  ce tableau au-delà de 100 colonnes → ligne non dépliable). Faits vérifiés
+  dans le build installé : `value` = SafeRepr (max 64 k, la queue
+  `[N rows x M columns]` d'un DataFrame y survit — extraite pour l'affichage
+  Positron), `count` seulement pour list/tuple/set, **fonctions/classes/
+  modules exclus kernel-side** (sections FUNCTIONS/CLASSES vides via cette
+  source), `variable.expression` fourni. `jupyter.listVariables` n'existe pas
+  dans l'hôte de test (rejet « command not found », pas `[]`) : l'adaptateur
+  try/catch tout, et seuls `categorize`/`inspect`/`summary` (purs) sont
+  testés.
 - **La catégorisation DATA/VALUES/FUNCTIONS/CLASSES est à nous** (Positron ne
   documente pas la sienne) : dernier segment du type qualifié — DataFrame/
-  Series/Index/ndarray → DATA, callables → FUNCTIONS, `type`/`*Meta` →
-  CLASSES, sinon VALUES.
+  Series/Index (pandas/polars) → DATA, callables → FUNCTIONS, `type`/`*Meta` →
+  CLASSES, sinon VALUES — **`ndarray` → VALUES**, comme Positron (vérifié
+  contre ses captures).
+- **Le rafraîchissement des variables est coûteux** (le script d'introspection
+  de Jupyter tourne SUR le kernel, en concurrence avec les cellules) : il ne
+  se déclenche que vue visible, qu'en **fin d'exécution**
+  (`executionSummary.timing`, debounce 500 ms), avec un seul fetch en vol
+  (coalescing), et `plotPanel.variablesAutoRefresh: false` le rend manuel.
 - **Le snippet d'inspection** encode l'expression cible en double JSON
   (littéral Python + payload), assemble sa sentinelle à l'exécution (un écho
   du code ne peut pas simuler une réponse) et enveloppe chaque accès dans
