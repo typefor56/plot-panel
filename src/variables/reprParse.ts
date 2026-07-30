@@ -256,7 +256,10 @@ export function parseCollectionRepr(raw: string, type: string): CollectionItems 
   const items: string[] = [];
   let gapAt: number | undefined;
   for (const part of splitTopLevel(content, ',')) {
-    const item = part.replace(/\s+/g, ' ').trim();
+    // Keep the item's own line structure: a Series or DataFrame nested in a
+    // container is only recognisable by it. Flattening for display is the
+    // caller's job (see elideItems).
+    const item = part.trim();
     if (item.length === 0) {
       continue; // "(1,)" trailing slot, empty wrappers
     }
@@ -285,10 +288,13 @@ export function splitDictItem(item: string): readonly [string, string] | undefin
  * items from after it, so the preview never fabricates adjacency.
  */
 export function elideItems(
-  items: readonly string[],
+  rawItems: readonly string[],
   gapAt: number | undefined,
   budget: number,
 ): string {
+  // Items keep their newlines so nested reprs stay parseable; a preview is
+  // one line, so collapse whitespace here.
+  const items = rawItems.map((item) => item.replace(/\s+/g, ' ').trim());
   const separatorCost = 2; // ", "
   if (gapAt === undefined) {
     const whole = items.join(', ');

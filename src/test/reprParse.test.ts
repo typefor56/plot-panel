@@ -124,7 +124,23 @@ suite('reprParse: collections', () => {
   test('quoted strings with commas and double spaces stay whole', () => {
     const parsed = parseCollectionRepr(fx.LIST_STRINGS, 'list');
     assert.ok(parsed);
-    assert.deepStrictEqual(parsed.items, ["'a, b'", '"it\'s"', "'plain'", "' double spaced '"]);
+    // Items keep their exact text, inner spacing included: a nested Series or
+    // DataFrame is only recognisable while its line structure survives.
+    assert.deepStrictEqual(parsed.items, [
+      "'a, b'",
+      '"it\'s"',
+      "'plain'",
+      "'  double  spaced  '",
+    ]);
+  });
+
+  test('a preview of those items is still one flattened line', () => {
+    const parsed = parseCollectionRepr(fx.LIST_STRINGS, 'list');
+    assert.ok(parsed);
+    assert.strictEqual(
+      elideItems(parsed.items, parsed.gapAt, 200),
+      "'a, b', \"it's\", 'plain', ' double spaced '",
+    );
   });
 
   test('tuples, sets and dicts unwrap with their own brackets', () => {

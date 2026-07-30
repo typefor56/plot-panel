@@ -101,7 +101,11 @@ body.busy #list {
   outline: none;
 }
 
+/* Section headers sit above the splitter's line, and are shaded so they read
+   as bands separating the groups rather than as another row. */
 .section-header {
+  position: relative;
+  z-index: 3;
   display: flex;
   align-items: center;
   gap: 4px;
@@ -112,8 +116,21 @@ body.busy #list {
   font-weight: 700;
   letter-spacing: 0.04em;
   color: var(--vscode-sideBarSectionHeader-foreground, var(--vscode-foreground));
-  background-color: var(--vscode-sideBarSectionHeader-background, transparent);
-  border-top: 1px solid var(--vscode-sideBarSectionHeader-border, transparent);
+  background-color: var(--vscode-sideBarSectionHeader-background, var(--vscode-editorWidget-background));
+  border-top: 1px solid var(--vscode-sideBarSectionHeader-border, var(--vscode-panel-border, transparent));
+  border-bottom: 1px solid var(--vscode-sideBarSectionHeader-border, var(--vscode-panel-border, transparent));
+}
+
+/* A touch more contrast so the theme's own shading is always visible, even
+   where sideBarSectionHeader-background is fully transparent. */
+.section-header::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-color: var(--vscode-list-hoverBackground);
+  opacity: 0.5;
+  pointer-events: none;
+  z-index: -1;
 }
 
 /* Three shared tracks. Indentation lives inside the first cell, never on the

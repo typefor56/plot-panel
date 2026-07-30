@@ -16,7 +16,13 @@
  * expansion is what a console session we own provides instead.
  */
 
-import { parseCollectionRepr, parseDataFrameRepr, parseSeriesRepr, splitDictItem } from './reprParse';
+import {
+  type DataFrameGrid,
+  parseCollectionRepr,
+  parseDataFrameRepr,
+  parseSeriesRepr,
+  splitDictItem,
+} from './reprParse';
 
 export type InferredKind =
   | 'DataFrame'
@@ -47,10 +53,27 @@ export function qualifiedType(kind: InferredKind): string {
   return QUALIFIED[kind];
 }
 
+function usable(grid: DataFrameGrid | undefined): DataFrameGrid | undefined {
+  return grid !== undefined && grid.columns.length > 0 && grid.rows.length > 0
+    ? grid
+    : undefined;
+}
+
+/**
+ * Parse a frame's grid, tolerating the loss of its leading indentation.
+ *
+ * A DataFrame repr begins with a blank slot above the index column, and the
+ * parser needs it to tell columns from indexes. A frame nested inside a
+ * container loses it when the item is split out of the parent's repr, so
+ * restore it before giving up rather than leave the row unexpandable.
+ */
+export function gridOf(text: string): DataFrameGrid | undefined {
+  return usable(parseDataFrameRepr(text)) ?? usable(parseDataFrameRepr(`  ${text}`));
+}
+
 /** A grid with both a header and at least one data row. */
 function hasGrid(text: string): boolean {
-  const grid = parseDataFrameRepr(text);
-  return grid !== undefined && grid.columns.length > 0 && grid.rows.length > 0;
+  return gridOf(text) !== undefined;
 }
 
 function braceKind(text: string): InferredKind {
@@ -113,7 +136,7 @@ export function canExpandRepr(type: string, raw: string, summary: string | undef
   }
   switch (short) {
     case 'DataFrame':
-      return summary !== undefined || hasGrid(raw);
+      return summary !== undefined || gridOf(raw) !== undefined;
     case 'Series': {
       const parsed = parseSeriesRepr(raw);
       return parsed !== undefined && parsed.pairs.length > 0;
