@@ -45,7 +45,9 @@ const FUNCTION_TYPES = new Set([
   'partial',
 ]);
 
-const CLASS_TYPES = new Set(['type', 'ABCMeta']);
+// 'class' is not a Python type name; it is the marker the view uses for
+// definitions recovered from cell source, where there is no live object.
+const CLASS_TYPES = new Set(['type', 'ABCMeta', 'class']);
 
 function lastSegment(type: string): string {
   const dot = type.lastIndexOf('.');

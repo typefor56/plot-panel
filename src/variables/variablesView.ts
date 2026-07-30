@@ -18,6 +18,7 @@ import {
   parseSeriesRepr,
   splitDictItem,
 } from './reprParse';
+import { parsePythonDefinitions } from './pythonDefs';
 import { parseDataFrameSummary } from './summary';
 import type { VariablesOptions } from './variablesOptions';
 
@@ -198,6 +199,43 @@ function synthesizeSeries(
   return lines.join('\n');
 }
 
+/**
+ * Functions and classes the user defined in the cells they have run, shaped
+ * like kernel variables so they flow through the same decoration path.
+ * Jupyter excludes them kernel-side, so the source of the executed cells is
+ * the only place left to find them on stable VS Code — which means their
+ * value is the signature, not a live object.
+ */
+function definedInCells(notebook: vscode.NotebookDocument): readonly KernelVariable[] {
+  const executed = notebook
+    .getCells()
+    .filter(
+      (cell) =>
+        cell.kind === vscode.NotebookCellKind.Code &&
+        cell.document.languageId === 'python' &&
+        cell.executionSummary?.executionOrder !== undefined,
+    )
+    .sort(
+      (left, right) =>
+        (left.executionSummary?.executionOrder ?? 0) -
+        (right.executionSummary?.executionOrder ?? 0),
+    );
+  const found = new Map<string, KernelVariable>();
+  for (const cell of executed) {
+    for (const definition of parsePythonDefinitions(cell.document.getText())) {
+      found.set(definition.name, {
+        name: definition.name,
+        value: definition.signature,
+        type: definition.kind === 'function' ? 'function' : 'class',
+        expression: definition.name,
+        hasNamedChildren: false,
+        indexedChildrenCount: 0,
+      });
+    }
+  }
+  return [...found.values()];
+}
+
 function targetLabel(notebook: vscode.NotebookDocument): string {
   if (notebook.notebookType === 'interactive') {
     return 'Interactive Window';
@@ -371,8 +409,14 @@ export class VariablesViewProvider implements vscode.WebviewViewProvider, vscode
     const variables = await this.source.listVariables(target.uri);
     this.kernelExpansion = variables.length > 0 && (await this.source.canExpand(target.uri));
     this.clearNodes();
-    const changed = this.trackRecency(target.uri.toString(), variables);
-    this.decorated = variables.map((variable) =>
+    // A live object always wins over a definition read from the source.
+    const live = new Set(variables.map((variable) => variable.name));
+    const listed = [
+      ...variables,
+      ...definedInCells(target).filter((definition) => !live.has(definition.name)),
+    ];
+    const changed = this.trackRecency(target.uri.toString(), listed);
+    this.decorated = listed.map((variable) =>
       this.decorate(variable, changed.get(variable.name) ?? 0),
     );
     this.targetName = targetLabel(target);

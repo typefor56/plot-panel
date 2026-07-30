@@ -38,6 +38,12 @@ suite('variables: categorization', () => {
     assert.strictEqual(categorize('enum.EnumMeta'), 'classes');
   });
 
+  test('definitions recovered from cell source land in their sections', () => {
+    // The markers the view attaches when Jupyter filtered the real objects out.
+    assert.strictEqual(categorize('function'), 'functions');
+    assert.strictEqual(categorize('class'), 'classes');
+  });
+
   test('everything else is VALUES', () => {
     for (const type of [
       'str',
