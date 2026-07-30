@@ -54,13 +54,14 @@ export function activate(context: vscode.ExtensionContext): PlotPanelApi {
       vscode.env.appName.includes('Insiders'),
   );
   const variablesOptions = new VariablesOptions(context.globalState);
+  const consoles = new ConsoleSessionManager(context.extensionUri);
+  const consoleView = new ConsoleViewProvider(context.extensionUri, consoles);
   const variables = new VariablesViewProvider(
     context.extensionUri,
     variablesSource,
     variablesOptions,
+    consoles,
   );
-  const consoles = new ConsoleSessionManager(context.extensionUri);
-  const consoleView = new ConsoleViewProvider(context.extensionUri, consoles);
 
   context.subscriptions.push(
     capture,

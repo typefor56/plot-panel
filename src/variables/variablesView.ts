@@ -10,6 +10,8 @@ import {
 } from './categorize';
 import type { ChildVariable } from './inspect';
 import type { JupyterVariablesSource, KernelVariable } from './jupyterApi';
+import type { ConsoleSession } from '../console/session';
+import type { ConsoleSessionManager } from '../console/sessionManager';
 import { canExpandRepr, inferChildType, qualifiedType } from './childType';
 import {
   type DataFrameGrid,
@@ -236,7 +238,7 @@ function definedInCells(notebook: vscode.NotebookDocument): readonly KernelVaria
   return [...found.values()];
 }
 
-function targetLabel(notebook: vscode.NotebookDocument): string {
+function notebookLabel(notebook: vscode.NotebookDocument): string {
   if (notebook.notebookType === 'interactive') {
     return 'Interactive Window';
   }
@@ -245,18 +247,41 @@ function targetLabel(notebook: vscode.NotebookDocument): string {
   return slash === -1 ? path : path.slice(slash + 1);
 }
 
+/**
+ * Where the listed variables come from. A notebook kernel can only be read
+ * through Jupyter's filtered, truncated descriptions; a console session is a
+ * process we own, so it answers with live objects at any depth.
+ */
+type VariablesTarget =
+  | { readonly kind: 'notebook'; readonly notebook: vscode.NotebookDocument }
+  | { readonly kind: 'console'; readonly session: ConsoleSession };
+
+function targetKey(target: VariablesTarget): string {
+  return target.kind === 'notebook'
+    ? target.notebook.uri.toString()
+    : `console:${target.session.id}`;
+}
+
+function targetLabel(target: VariablesTarget): string {
+  return target.kind === 'notebook'
+    ? notebookLabel(target.notebook)
+    : target.session.label;
+}
+
 export class VariablesViewProvider implements vscode.WebviewViewProvider, vscode.Disposable {
   static readonly viewType = 'plotPanel.variables';
 
   private view: vscode.WebviewView | undefined;
-  private target: vscode.NotebookDocument | undefined;
+  private target: VariablesTarget | undefined;
   private refreshTimer: ReturnType<typeof setTimeout> | undefined;
   private inFlight = false;
   private queued = false;
   /** An execution happened while the view was hidden or auto-refresh was off. */
   private stale = false;
-  /** Whether the last refresh could use the Kernels API for expansion. */
+  /** Whether the last refresh could ask a live session for children. */
   private kernelExpansion = false;
+  /** Last observed state of the active console, to spot an execution ending. */
+  private consoleBusy = false;
   /** Last fetch, fully derived; re-grouping/sorting re-projects this cache. */
   private decorated: readonly DecoratedVariable[] = [];
   private targetName: string | undefined;
@@ -277,15 +302,17 @@ export class VariablesViewProvider implements vscode.WebviewViewProvider, vscode
     private readonly extensionUri: vscode.Uri,
     private readonly source: JupyterVariablesSource,
     private readonly options: VariablesOptions,
+    consoles?: ConsoleSessionManager,
   ) {
-    this.target = vscode.window.activeNotebookEditor?.notebook;
+    const notebook = vscode.window.activeNotebookEditor?.notebook;
+    this.target = notebook === undefined ? undefined : { kind: 'notebook', notebook };
     // Grouping/sorting changes re-project the cache; the kernel is not asked.
     const unsubscribeOptions = this.options.onDidChange(() => this.renderFromCache());
     this.disposables.push({ dispose: unsubscribeOptions });
     this.disposables.push(
       vscode.window.onDidChangeActiveNotebookEditor((editor) => {
-        if (editor !== undefined && editor.notebook !== this.target) {
-          this.target = editor.notebook;
+        if (editor !== undefined && !this.targets(editor.notebook)) {
+          this.target = { kind: 'notebook', notebook: editor.notebook };
           this.scheduleRefresh(0);
         }
       }),
@@ -297,7 +324,7 @@ export class VariablesViewProvider implements vscode.WebviewViewProvider, vscode
           (change) => change.executionSummary?.timing !== undefined,
         );
         if (finished) {
-          this.target = event.notebook;
+          this.target = { kind: 'notebook', notebook: event.notebook };
           if (this.autoRefresh()) {
             this.scheduleRefresh(REFRESH_DEBOUNCE_MS);
           } else {
@@ -307,12 +334,46 @@ export class VariablesViewProvider implements vscode.WebviewViewProvider, vscode
       }),
       vscode.workspace.onDidCloseNotebookDocument((notebook) => {
         this.recency.delete(notebook.uri.toString());
-        if (this.target === notebook) {
+        if (this.targets(notebook)) {
           this.target = undefined;
           this.scheduleRefresh(0);
         }
       }),
     );
+    if (consoles !== undefined) {
+      const unsubscribeConsoles = consoles.onDidChange(() => this.onConsolesChanged(consoles));
+      this.disposables.push({ dispose: unsubscribeConsoles });
+    }
+  }
+
+  private targets(notebook: vscode.NotebookDocument): boolean {
+    return this.target?.kind === 'notebook' && this.target.notebook === notebook;
+  }
+
+  /**
+   * Running something in a console makes it the session on show — the same
+   * rule as a notebook, whose executions already claim the view. Its own
+   * completion is what triggers the refresh: no polling.
+   */
+  private onConsolesChanged(consoles: ConsoleSessionManager): void {
+    const active = consoles.active;
+    if (active === undefined) {
+      if (this.target?.kind === 'console') {
+        this.target = undefined;
+        this.scheduleRefresh(0);
+      }
+      return;
+    }
+    const wasBusy = this.consoleBusy;
+    this.consoleBusy = active.state === 'busy';
+    if (this.target?.kind !== 'console' || this.target.session !== active) {
+      this.target = { kind: 'console', session: active };
+      this.scheduleRefresh(0);
+      return;
+    }
+    if (wasBusy && active.state === 'idle') {
+      this.scheduleRefresh(0);
+    }
   }
 
   private autoRefresh(): boolean {
@@ -406,21 +467,36 @@ export class VariablesViewProvider implements vscode.WebviewViewProvider, vscode
       return;
     }
     this.post({ type: 'busy', busy: true });
-    const variables = await this.source.listVariables(target.uri);
-    this.kernelExpansion = variables.length > 0 && (await this.source.canExpand(target.uri));
+    const listed = await this.listFor(target);
     this.clearNodes();
-    // A live object always wins over a definition read from the source.
-    const live = new Set(variables.map((variable) => variable.name));
-    const listed = [
-      ...variables,
-      ...definedInCells(target).filter((definition) => !live.has(definition.name)),
-    ];
-    const changed = this.trackRecency(target.uri.toString(), listed);
+    const changed = this.trackRecency(targetKey(target), listed);
     this.decorated = listed.map((variable) =>
       this.decorate(variable, changed.get(variable.name) ?? 0),
     );
     this.targetName = targetLabel(target);
     this.renderFromCache();
+  }
+
+  /**
+   * List the target's variables, and record whether children can be asked
+   * for. A console session is ours, so it always can — and it reports the
+   * functions and classes Jupyter filters out kernel-side, which is why only
+   * the notebook path needs them recovered from the cell source.
+   */
+  private async listFor(target: VariablesTarget): Promise<readonly KernelVariable[]> {
+    if (target.kind === 'console') {
+      this.kernelExpansion = true;
+      return target.session.listVariables();
+    }
+    const notebook = target.notebook;
+    const variables = await this.source.listVariables(notebook.uri);
+    this.kernelExpansion = variables.length > 0 && (await this.source.canExpand(notebook.uri));
+    // A live object always wins over a definition read from the source.
+    const live = new Set(variables.map((variable) => variable.name));
+    return [
+      ...variables,
+      ...definedInCells(notebook).filter((definition) => !live.has(definition.name)),
+    ];
   }
 
   /**
@@ -730,10 +806,18 @@ export class VariablesViewProvider implements vscode.WebviewViewProvider, vscode
       );
       return;
     }
+    if (target.kind === 'console') {
+      // The delegation resolves the expression against a notebook's kernel;
+      // it has no way to reach a session of ours.
+      void vscode.window.showErrorMessage(
+        'Plot Panel: the Data Viewer works with notebook variables — expand the row to see console data instead.',
+      );
+      return;
+    }
     const request: DataViewerRequest = {
       name: expression,
       type: viewerType,
-      fileName: target.uri,
+      fileName: target.notebook.uri,
       value: undefined,
       fullType: undefined,
       supportsDataExplorer: true,
@@ -767,11 +851,14 @@ export class VariablesViewProvider implements vscode.WebviewViewProvider, vscode
     }
     const target = this.target;
     if (target === undefined) {
-      this.post({ type: 'childrenError', requestId, message: 'No active notebook.' });
+      this.post({ type: 'childrenError', requestId, message: 'No active session.' });
       return;
     }
-    void this.source
-      .listChildren(target.uri, expression, this.cancellation.token)
+    const children =
+      target.kind === 'console'
+        ? target.session.listChildren(expression)
+        : this.source.listChildren(target.notebook.uri, expression, this.cancellation.token);
+    void children
       .then((children) => {
         if (children === undefined) {
           this.post({
