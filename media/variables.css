@@ -15,6 +15,10 @@ body {
   background-color: var(--vscode-sideBar-background, var(--vscode-editor-background));
   font-family: var(--vscode-font-family);
   font-size: var(--vscode-font-size);
+  /* Width of the name column. Every row is a grid sharing this exact track,
+     so the name|value boundary lands on the same vertical line on every row,
+     at every nesting depth. The splitter draws that line and drags it. */
+  --name-width: 140px;
 }
 
 #filter-row {
@@ -43,14 +47,58 @@ body {
   color: var(--vscode-input-placeholderForeground);
 }
 
-#list {
+#list-wrap {
+  position: relative;
   flex: 1 1 auto;
   min-height: 0;
+  display: flex;
+}
+
+#list {
+  flex: 1 1 auto;
+  min-width: 0;
   overflow-y: auto;
 }
 
 body.busy #list {
   opacity: 0.6;
+}
+
+/* The one and only column separator: a single absolutely positioned element
+   spanning the whole list, so it is a continuous straight line whatever the
+   rows contain. It doubles as the drag handle. */
+#splitter {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--name-width);
+  width: 9px;
+  margin-left: -4px;
+  cursor: col-resize;
+  z-index: 2;
+  touch-action: none;
+}
+
+#splitter::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 4px;
+  width: 1px;
+  background-color: var(--vscode-widget-border, var(--vscode-panel-border, transparent));
+}
+
+#splitter:hover::before,
+#splitter.dragging::before,
+#splitter:focus-visible::before {
+  left: 3px;
+  width: 2px;
+  background-color: var(--vscode-focusBorder);
+}
+
+#splitter:focus-visible {
+  outline: none;
 }
 
 .section-header {
@@ -68,11 +116,13 @@ body.busy #list {
   border-top: 1px solid var(--vscode-sideBarSectionHeader-border, transparent);
 }
 
+/* Three shared tracks. Indentation lives inside the first cell, never on the
+   row, so deeper levels never push the boundary sideways. */
 .var-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: var(--name-width) minmax(0, 1fr) auto;
   align-items: center;
-  gap: 6px;
-  padding: 2px 8px 2px 4px;
+  padding: 2px 0;
   border-top: 1px solid var(--vscode-widget-border, transparent);
 }
 
@@ -89,44 +139,64 @@ body.busy #list {
   outline-offset: -1px;
 }
 
-.twistie {
-  flex: 0 0 12px;
-  width: 12px;
-  text-align: center;
-  font-size: 0.8em;
-  opacity: 0;
+.var-name-cell {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  padding-left: calc(4px + var(--level, 0) * 12px);
+  padding-right: 6px;
 }
 
-.twistie.expandable {
+.twistie {
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   opacity: 0.8;
 }
 
-.var-name {
-  flex: 0 1 32%;
-  min-width: 60px;
+.twistie svg {
+  transition: transform 0.1s ease-out;
+  transform-origin: 50% 50%;
+}
+
+.var-row[aria-expanded='true'] .twistie svg {
+  transform: rotate(90deg);
+}
+
+.var-name,
+.var-value {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-/* The value column reads left-to-right from a faint column separator and
-   keeps a clear gap before the right-aligned type hint (Positron airiness). */
-.var-value {
-  flex: 1 1 auto;
+.var-name {
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+}
+
+/* Left-aligned immediately after the separator line drawn by #splitter. */
+.var-value {
+  min-width: 0;
+  padding-left: 9px;
   text-align: left;
-  margin-right: 16px;
-  border-left: 1px solid var(--vscode-widget-border, transparent);
-  padding-left: 8px;
   opacity: 0.9;
 }
 
+.var-tail {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-left: 8px;
+  padding-right: 8px;
+  min-width: 0;
+}
+
 .var-hint {
-  flex: 0 0 auto;
-  max-width: 35%;
+  max-width: 16ch;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -158,17 +228,33 @@ body.busy #list {
   outline-offset: 1px;
 }
 
+/* Truncation marker: keeps the grid (so the separator stays straight) and
+   centers the glyph in the value column. */
 .var-row.var-ellipsis {
-  justify-content: center;
   color: var(--vscode-descriptionForeground);
   cursor: default;
   user-select: none;
+}
+
+.var-row.var-ellipsis .var-value {
+  text-align: center;
 }
 
 .var-note {
   padding: 2px 8px 2px 20px;
   font-style: italic;
   color: var(--vscode-descriptionForeground);
+}
+
+/* Off-screen probe used to size the name column to the longest name. */
+#measure {
+  position: absolute;
+  top: -1000px;
+  left: -1000px;
+  visibility: hidden;
+  white-space: pre;
+  font-family: inherit;
+  font-size: inherit;
 }
 
 #empty {

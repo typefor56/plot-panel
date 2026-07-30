@@ -221,6 +221,11 @@
         "title": "Sort Variables by Recently Changed",
         "shortTitle": "Recent",
         "category": "Plot Panel"
+      },
+      {
+        "command": "plotPanel.variablesResetColumnWidth",
+        "title": "Reset Variables Column Width",
+        "category": "Plot Panel"
       }
     ],
     "submenus": [
@@ -314,6 +319,10 @@
           "command": "plotPanel.refreshVariables",
           "when": "view == plotPanel.variables",
           "group": "navigation@3"
+        },
+        {
+          "command": "plotPanel.variablesResetColumnWidth",
+          "when": "view == plotPanel.variables"
         }
       ],
       "editor/title": [

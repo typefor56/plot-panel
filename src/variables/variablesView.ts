@@ -81,7 +81,10 @@ type ToVariablesWebviewMessage =
       readonly type: 'state';
       readonly sections: readonly WebviewSection[];
       readonly target: string | undefined;
+      /** Pinned name-column width; undefined lets the view auto-size it. */
+      readonly nameWidth: number | undefined;
     }
+  | { readonly type: 'nameWidth'; readonly width: number | undefined }
   | { readonly type: 'busy'; readonly busy: boolean }
   | {
       readonly type: 'children';
@@ -94,7 +97,8 @@ type FromVariablesWebviewMessage =
   | { readonly type: 'ready' }
   | { readonly type: 'refresh' }
   | { readonly type: 'expand'; readonly requestId: number; readonly expression: string }
-  | { readonly type: 'openViewer'; readonly expression: string; readonly viewerType: string };
+  | { readonly type: 'openViewer'; readonly expression: string; readonly viewerType: string }
+  | { readonly type: 'setNameWidth'; readonly width: number };
 
 /**
  * The exact argument shape jupyter.showDataViewer forwards, untouched, to
@@ -309,7 +313,12 @@ export class VariablesViewProvider implements vscode.WebviewViewProvider, vscode
       this.fallbackChildren.clear();
       this.decorated = [];
       this.targetName = undefined;
-      this.post({ type: 'state', sections: [], target: undefined });
+      this.post({
+        type: 'state',
+        sections: [],
+        target: undefined,
+        nameWidth: this.options.nameWidth,
+      });
       return;
     }
     this.post({ type: 'busy', busy: true });
@@ -374,7 +383,12 @@ export class VariablesViewProvider implements vscode.WebviewViewProvider, vscode
       label: section.label,
       rows: section.rows.map((decorated) => decorated.row),
     }));
-    this.post({ type: 'state', sections, target: this.targetName });
+    this.post({
+      type: 'state',
+      sections,
+      target: this.targetName,
+      nameWidth: this.options.nameWidth,
+    });
   }
 
   private decorate(variable: KernelVariable, changedAt: number): DecoratedVariable {
@@ -508,7 +522,16 @@ export class VariablesViewProvider implements vscode.WebviewViewProvider, vscode
       case 'openViewer':
         void this.openViewer(message.expression, message.viewerType);
         break;
+      case 'setNameWidth':
+        this.options.setNameWidth(message.width);
+        break;
     }
+  }
+
+  /** Drop the pinned column width so it auto-sizes to the longest name again. */
+  resetColumnWidth(): void {
+    this.options.setNameWidth(undefined);
+    this.post({ type: 'nameWidth', width: undefined });
   }
 
   private async openViewer(expression: string, viewerType: string): Promise<void> {
@@ -596,13 +619,18 @@ export class VariablesViewProvider implements vscode.WebviewViewProvider, vscode
         content="default-src 'none'; style-src ${webview.cspSource}; script-src 'nonce-${nonce}';">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="stylesheet" href="${styleUri}">
-  <title>Jupyter Variables</title>
+  <title>Variables</title>
 </head>
 <body>
   <header id="filter-row">
     <input id="filter" type="text" placeholder="Filter" aria-label="Filter variables">
   </header>
-  <div id="list" role="tree" aria-label="Kernel variables"></div>
+  <div id="list-wrap">
+    <div id="list" role="tree" aria-label="Kernel variables"></div>
+    <div id="splitter" role="separator" aria-orientation="vertical"
+         aria-label="Resize the name column" tabindex="0"></div>
+  </div>
+  <span id="measure" aria-hidden="true"></span>
   <p id="empty" hidden></p>
   <script nonce="${nonce}" src="${scriptUri}"></script>
 </body>

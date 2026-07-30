@@ -11,6 +11,11 @@ import type { VariablesGrouping, VariablesSorting } from './categorize';
 
 const GROUPING_KEY = 'plotPanel.variablesGrouping';
 const SORTING_KEY = 'plotPanel.variablesSorting';
+const NAME_WIDTH_KEY = 'plotPanel.variablesNameWidth';
+
+/** Bounds for a stored column width; anything else falls back to auto-sizing. */
+const MIN_NAME_WIDTH = 40;
+const MAX_NAME_WIDTH = 2000;
 
 const GROUPINGS: readonly VariablesGrouping[] = ['kind', 'size'];
 const SORTINGS: readonly VariablesSorting[] = ['name', 'size', 'recent'];
@@ -23,9 +28,19 @@ function isSorting(value: unknown): value is VariablesSorting {
   return typeof value === 'string' && (SORTINGS as readonly string[]).includes(value);
 }
 
+function isNameWidth(value: unknown): value is number {
+  return (
+    typeof value === 'number' &&
+    Number.isFinite(value) &&
+    value >= MIN_NAME_WIDTH &&
+    value <= MAX_NAME_WIDTH
+  );
+}
+
 export class VariablesOptions {
   private currentGrouping: VariablesGrouping;
   private currentSorting: VariablesSorting;
+  private currentNameWidth: number | undefined;
   private readonly listeners = new Set<() => void>();
 
   constructor(private readonly memento: vscode.Memento) {
@@ -33,6 +48,27 @@ export class VariablesOptions {
     this.currentGrouping = isGrouping(storedGrouping) ? storedGrouping : 'kind';
     const storedSorting: unknown = memento.get(SORTING_KEY);
     this.currentSorting = isSorting(storedSorting) ? storedSorting : 'name';
+    const storedWidth: unknown = memento.get(NAME_WIDTH_KEY);
+    this.currentNameWidth = isNameWidth(storedWidth) ? storedWidth : undefined;
+  }
+
+  /**
+   * Width the user dragged the name column to, or undefined while it still
+   * auto-sizes to the longest name. Deliberately does NOT emit: the webview
+   * has already applied the drag locally, and a re-render mid-drag would
+   * rebuild the DOM under the pointer.
+   */
+  get nameWidth(): number | undefined {
+    return this.currentNameWidth;
+  }
+
+  setNameWidth(width: number | undefined): void {
+    const next = isNameWidth(width) ? width : undefined;
+    if (next === this.currentNameWidth) {
+      return;
+    }
+    this.currentNameWidth = next;
+    void this.memento.update(NAME_WIDTH_KEY, next);
   }
 
   get grouping(): VariablesGrouping {

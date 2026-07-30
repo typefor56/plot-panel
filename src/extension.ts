@@ -83,6 +83,9 @@ export function activate(context: vscode.ExtensionContext): PlotPanelApi {
     vscode.commands.registerCommand('plotPanel.variablesSortByRecent', () =>
       variablesOptions.setSorting('recent'),
     ),
+    vscode.commands.registerCommand('plotPanel.variablesResetColumnWidth', () =>
+      variables.resetColumnWidth(),
+    ),
     vscode.window.registerWebviewViewProvider(PlotsViewProvider.viewType, provider),
     capture.onUnsupportedOutput((mime, source) => {
       registry.broadcastNotice(

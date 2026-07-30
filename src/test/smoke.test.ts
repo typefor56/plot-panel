@@ -44,6 +44,7 @@ suite('Smoke', () => {
       'plotPanel.variablesSortByName',
       'plotPanel.variablesSortBySize',
       'plotPanel.variablesSortByRecent',
+      'plotPanel.variablesResetColumnWidth',
     ]) {
       assert.ok(commands.includes(id), `command ${id} is not registered`);
     }
