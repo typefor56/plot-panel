@@ -1,0 +1,328 @@
+import { type ChildProcessWithoutNullStreams, spawn } from 'node:child_process';
+import type { ChildVariable } from '../variables/inspect';
+import type { KernelVariable } from '../variables/jupyterApi';
+
+/**
+ * One interactive Python session: a child process running
+ * media/console_driver.py, framed as one JSON object per line each way.
+ *
+ * The session owns the scrollback. A webview cannot receive messages while it
+ * is hidden, and ours is a stateless projection re-hydrated on every ready
+ * handshake, so the transcript has to live here.
+ */
+
+export type SessionState = 'starting' | 'idle' | 'busy' | 'exited';
+
+export type TranscriptKind = 'input' | 'out' | 'err' | 'result' | 'notice';
+
+export interface TranscriptEntry {
+  readonly kind: TranscriptKind;
+  readonly text: string;
+}
+
+/** Lines kept per session; the oldest are dropped. */
+const SCROLLBACK_LIMIT = 5000;
+
+interface PendingRequest {
+  readonly resolve: (data: readonly unknown[]) => void;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function toKernelVariable(item: unknown): KernelVariable | undefined {
+  if (!isRecord(item) || typeof item['name'] !== 'string') {
+    return undefined;
+  }
+  return {
+    name: item['name'],
+    value: typeof item['value'] === 'string' ? item['value'] : '',
+    type: typeof item['type'] === 'string' ? item['type'] : '',
+    expression: typeof item['expression'] === 'string' ? item['expression'] : item['name'],
+    hasNamedChildren: item['hasNamedChildren'] === true,
+    indexedChildrenCount:
+      typeof item['indexedChildrenCount'] === 'number' ? item['indexedChildrenCount'] : 0,
+  };
+}
+
+function toChildVariable(item: unknown): ChildVariable | undefined {
+  if (!isRecord(item)) {
+    return undefined;
+  }
+  const { name, expression, type, value, hasChildren } = item;
+  if (
+    typeof name !== 'string' ||
+    typeof expression !== 'string' ||
+    typeof type !== 'string' ||
+    typeof value !== 'string'
+  ) {
+    return undefined;
+  }
+  return { name, expression, type, value, hasChildren: hasChildren === true };
+}
+
+export class ConsoleSession {
+  private child: ChildProcessWithoutNullStreams | undefined;
+  private stdoutBuffer = '';
+  private nextRequestId = 1;
+  private readonly pending = new Map<number, PendingRequest>();
+  private entries: TranscriptEntry[] = [];
+  private currentState: SessionState = 'starting';
+  private continuation = false;
+  private interpreterLabel = '';
+  private readonly changeListeners = new Set<() => void>();
+  private readonly appendListeners = new Set<(entry: TranscriptEntry) => void>();
+
+  constructor(
+    readonly id: number,
+    private readonly interpreter: string,
+    private readonly driverPath: string,
+    private readonly cwd: string | undefined,
+  ) {}
+
+  get label(): string {
+    return `Python ${this.interpreterLabel}`.trim();
+  }
+
+  get state(): SessionState {
+    return this.currentState;
+  }
+
+  /** True while the driver is waiting for the rest of a compound statement. */
+  get needsMoreInput(): boolean {
+    return this.continuation;
+  }
+
+  get transcript(): readonly TranscriptEntry[] {
+    return this.entries;
+  }
+
+  onDidChange(listener: () => void): () => void {
+    this.changeListeners.add(listener);
+    return () => this.changeListeners.delete(listener);
+  }
+
+  onDidAppend(listener: (entry: TranscriptEntry) => void): () => void {
+    this.appendListeners.add(listener);
+    return () => this.appendListeners.delete(listener);
+  }
+
+  start(): void {
+    this.setState('starting');
+    let child: ChildProcessWithoutNullStreams;
+    try {
+      child = spawn(this.interpreter, ['-u', this.driverPath], {
+        ...(this.cwd === undefined ? {} : { cwd: this.cwd }),
+        env: { ...process.env, PYTHONIOENCODING: 'utf-8' },
+      });
+    } catch {
+      this.append({ kind: 'err', text: `Could not start ${this.interpreter}.\n` });
+      this.setState('exited');
+      return;
+    }
+    this.child = child;
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
+    child.stdout.on('data', (chunk: string) => this.onStdout(chunk));
+    // Anything on stderr comes from the interpreter itself: once the driver
+    // is up it reroutes sys.stderr into the frame protocol.
+    child.stderr.on('data', (chunk: string) => this.append({ kind: 'err', text: chunk }));
+    child.on('error', (error: Error) => {
+      this.append({ kind: 'err', text: `${error.message}\n` });
+      this.setState('exited');
+    });
+    child.on('exit', (code) => {
+      this.child = undefined;
+      this.failPending();
+      if (this.currentState !== 'exited') {
+        this.append({ kind: 'notice', text: `Session exited (code ${code ?? 0}).\n` });
+        this.setState('exited');
+      }
+    });
+  }
+
+  private onStdout(chunk: string): void {
+    this.stdoutBuffer += chunk;
+    let newline = this.stdoutBuffer.indexOf('\n');
+    while (newline !== -1) {
+      const line = this.stdoutBuffer.slice(0, newline);
+      this.stdoutBuffer = this.stdoutBuffer.slice(newline + 1);
+      if (line.length > 0) {
+        this.onFrame(line);
+      }
+      newline = this.stdoutBuffer.indexOf('\n');
+    }
+  }
+
+  private onFrame(line: string): void {
+    let frame: unknown;
+    try {
+      frame = JSON.parse(line);
+    } catch {
+      // Not ours: a stray print from a library writing to fd 1 directly.
+      this.append({ kind: 'out', text: `${line}\n` });
+      return;
+    }
+    if (!isRecord(frame)) {
+      return;
+    }
+    const kind = frame['t'];
+    switch (kind) {
+      case 'ready':
+        this.interpreterLabel = typeof frame['version'] === 'string' ? frame['version'] : '';
+        this.continuation = false;
+        this.setState('idle');
+        break;
+      case 'out':
+      case 'err':
+      case 'result':
+        if (typeof frame['s'] === 'string') {
+          this.append({ kind, text: frame['s'] });
+        }
+        break;
+      case 'done':
+        this.continuation = frame['more'] === true;
+        this.setState('idle');
+        break;
+      case 'vars':
+      case 'children': {
+        const id = typeof frame['id'] === 'number' ? frame['id'] : 0;
+        const request = this.pending.get(id);
+        if (request !== undefined) {
+          this.pending.delete(id);
+          request.resolve(Array.isArray(frame['data']) ? frame['data'] : []);
+        }
+        break;
+      }
+    }
+  }
+
+  /** Send one line of source. Echoed into the transcript with its prompt. */
+  execute(code: string): void {
+    this.append({ kind: 'input', text: `${this.continuation ? '... ' : '>>> '}${code}\n` });
+    if (!this.send({ id: this.nextRequestId++, op: 'exec', code })) {
+      return;
+    }
+    this.setState('busy');
+  }
+
+  async listVariables(): Promise<readonly KernelVariable[]> {
+    const data = await this.request('vars', {});
+    const variables: KernelVariable[] = [];
+    for (const item of data) {
+      const variable = toKernelVariable(item);
+      if (variable !== undefined) {
+        variables.push(variable);
+      }
+    }
+    return variables;
+  }
+
+  async listChildren(expression: string): Promise<readonly ChildVariable[] | undefined> {
+    if (this.currentState === 'exited') {
+      return undefined;
+    }
+    const data = await this.request('children', { expression });
+    const children: ChildVariable[] = [];
+    for (const item of data) {
+      const child = toChildVariable(item);
+      if (child !== undefined) {
+        children.push(child);
+      }
+    }
+    return children;
+  }
+
+  private request(op: string, extra: Record<string, unknown>): Promise<readonly unknown[]> {
+    const id = this.nextRequestId++;
+    return new Promise<readonly unknown[]>((resolve) => {
+      if (!this.send({ id, op, ...extra })) {
+        resolve([]);
+        return;
+      }
+      this.pending.set(id, { resolve });
+    });
+  }
+
+  private send(request: Record<string, unknown>): boolean {
+    const child = this.child;
+    if (child === undefined || child.stdin.destroyed) {
+      return false;
+    }
+    try {
+      child.stdin.write(`${JSON.stringify(request)}\n`);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Ctrl+C: SIGINT raises KeyboardInterrupt inside the running statement. */
+  interrupt(): void {
+    this.child?.kill('SIGINT');
+  }
+
+  clear(): void {
+    this.entries = [];
+    this.emitChange();
+  }
+
+  /** Fresh process, empty namespace; the transcript is kept with a marker. */
+  restart(): void {
+    this.stop();
+    this.append({ kind: 'notice', text: '\nRestarting session…\n' });
+    this.continuation = false;
+    this.start();
+  }
+
+  private stop(): void {
+    const child = this.child;
+    this.child = undefined;
+    this.failPending();
+    if (child !== undefined) {
+      child.removeAllListeners('exit');
+      child.kill();
+    }
+  }
+
+  private failPending(): void {
+    for (const [, request] of this.pending) {
+      request.resolve([]);
+    }
+    this.pending.clear();
+  }
+
+  private append(entry: TranscriptEntry): void {
+    this.entries.push(entry);
+    if (this.entries.length > SCROLLBACK_LIMIT) {
+      this.entries = this.entries.slice(-SCROLLBACK_LIMIT);
+      this.emitChange();
+      return;
+    }
+    for (const listener of this.appendListeners) {
+      listener(entry);
+    }
+  }
+
+  private setState(state: SessionState): void {
+    if (this.currentState === state) {
+      return;
+    }
+    this.currentState = state;
+    this.emitChange();
+  }
+
+  private emitChange(): void {
+    for (const listener of this.changeListeners) {
+      listener();
+    }
+  }
+
+  dispose(): void {
+    this.stop();
+    this.currentState = 'exited';
+    this.changeListeners.clear();
+    this.appendListeners.clear();
+  }
+}
