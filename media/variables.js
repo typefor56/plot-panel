@@ -219,7 +219,12 @@
           container.appendChild(box);
           const requestId = nextRequestId++;
           pending.set(requestId, { box, level });
-          vscode.postMessage({ type: 'expand', requestId, expression: row.expression });
+          vscode.postMessage({
+            type: 'expand',
+            requestId,
+            nodeId: row.nodeId,
+            expression: row.expression,
+          });
         }
         if (box !== null) {
           box.hidden = !expanded;
