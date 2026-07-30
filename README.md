@@ -270,3 +270,12 @@ they act on the gallery selection.
   browser clipboard, which requires a focused document. If the environment
   denies the clipboard permission, the command reports an explicit error
   rather than failing silently.
+
+## Trademarks
+
+This extension is an independent project. It is not affiliated with, endorsed
+by, or sponsored by Posit Software, PBC or Microsoft. Positron and RStudio are
+trademarks of Posit Software, PBC; they are named here only to describe the
+layout this extension reproduces. No Positron source code was consulted or
+used: the implementation is original, and the behaviours it matches were
+derived from public behaviour and from the VS Code and Jupyter extension APIs.
