@@ -22,6 +22,10 @@
   let entries = [];
   /** @type {string | undefined} */
   let selectedId = undefined;
+  /** id of the figure opening a run -> that run's number. Recomputed by the
+   *  host on every history change, so eviction cannot orphan a label. */
+  let runLabels = new Map();
+
   /** @type {'gallery' | 'single'} 'single' pins one entry: no strip, no navigation. */
   let sessionMode = 'gallery';
   /** Host-owned display mode; the webview only projects it. */
@@ -153,14 +157,15 @@
     for (const entry of entries) {
       // Each run opens with a labelled divider, so a long history reads as
       // "the figures from that run" rather than one undifferentiated wall.
-      if (entry.runStart === true) {
+      const run = runLabels.get(entry.id);
+      if (run !== undefined) {
         const marker = document.createElement('div');
         marker.className = 'run-marker';
         const label = document.createElement('span');
         label.className = 'run-label';
-        label.textContent = 'Run ' + entry.run;
+        label.textContent = 'Run ' + run;
         marker.appendChild(label);
-        marker.title = 'Figures produced by run ' + entry.run;
+        marker.title = 'Figures produced by run ' + run;
         strip.appendChild(marker);
       }
       const button = document.createElement('button');
@@ -266,6 +271,7 @@
         sessionMode = message.sessionMode === 'single' ? 'single' : 'gallery';
         applyDisplay(message.display);
         entries = message.entries.slice();
+        runLabels = new Map((message.runs || []).map((label) => [label.id, label.run]));
         selectedId = message.selectedId;
         requested.clear();
         renderNotice(message.notice);
@@ -284,6 +290,10 @@
         renderNotice(undefined);
         renderStrip();
         break;
+      case 'runs':
+        runLabels = new Map(message.runs.map((label) => [label.id, label.run]));
+        renderStrip();
+        break;
       case 'evicted':
         entries = entries.filter((entry) => !message.ids.includes(entry.id));
         if (sessionMode === 'single' && selectedId !== undefined && findEntry(selectedId) === undefined) {
@@ -300,6 +310,7 @@
         renderSelection();
         break;
       case 'cleared':
+        runLabels = new Map();
         entries = [];
         requested.clear();
         if (sessionMode === 'single' && selectedId !== undefined) {

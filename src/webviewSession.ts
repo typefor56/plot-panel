@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import * as vscode from 'vscode';
 import type { DisplayMode, DisplayOptions } from './displayOptions';
 import type { HistoryEvent, PlotHistory } from './history';
-import { type RunGroup, groupIntoRuns } from './runs';
+import { groupIntoRuns } from './runs';
 import type { ThumbnailCache } from './thumbnails';
 import type { PlotEntry } from './types';
 
@@ -44,10 +44,6 @@ interface WebviewEntry {
   readonly mime: string;
   readonly source: string;
   readonly timestamp: number;
-  /** 1-based run this figure came from; the strip labels each group once. */
-  readonly run: number;
-  /** True for the first figure of its run, which carries the label. */
-  readonly runStart: boolean;
   /** Reduced preview for the strip; absent when none exists yet. */
   readonly thumbUri?: string;
   /** Full-resolution image; only sent for the selected entry or fresh captures. */
@@ -59,6 +55,12 @@ interface DisplayState {
   readonly darkFilter: boolean;
 }
 
+/** The figure that opens a run, and that run's 1-based number. */
+interface RunLabel {
+  readonly id: string;
+  readonly run: number;
+}
+
 type ToWebviewMessage =
   | {
       readonly type: 'state';
@@ -67,7 +69,9 @@ type ToWebviewMessage =
       readonly notice: string | undefined;
       readonly sessionMode: SessionMode;
       readonly display: DisplayState;
+      readonly runs: readonly RunLabel[];
     }
+  | { readonly type: 'runs'; readonly runs: readonly RunLabel[] }
   | { readonly type: 'display'; readonly display: DisplayState }
   | { readonly type: 'added'; readonly entry: WebviewEntry }
   | { readonly type: 'evicted'; readonly ids: readonly string[] }
@@ -198,17 +202,11 @@ export class PlotWebviewSession implements vscode.Disposable {
   }
 
   private toWebviewEntry(entry: PlotEntry, includeData: boolean): WebviewEntry {
-    const position = this.history.entries.indexOf(entry);
-    const group = this.runs().find(
-      (run) => position >= run.startIndex && position < run.startIndex + run.count,
-    );
     const base = {
       id: entry.id,
       mime: entry.mime,
       source: entry.source,
       timestamp: entry.timestamp,
-      run: group?.run ?? 1,
-      runStart: group?.startIndex === position,
     };
     const thumb = this.thumbnails.get(entry.id);
     return {
@@ -223,9 +221,28 @@ export class PlotWebviewSession implements vscode.Disposable {
     };
   }
 
-  /** Run boundaries of the current history, recomputed per state build. */
-  private runs(): readonly RunGroup[] {
-    return groupIntoRuns(this.history.entries);
+  /**
+   * Which figure opens which run, recomputed from the whole history every
+   * time it changes. Freezing this onto each entry as it arrived went stale
+   * the moment the oldest entries were evicted: the figure carrying a run's
+   * label could be dropped, and the run lost its marker.
+   */
+  private runLabels(): readonly RunLabel[] {
+    const labels: RunLabel[] = [];
+    const entries = this.history.entries;
+    for (const group of groupIntoRuns(entries)) {
+      const first = entries[group.startIndex];
+      if (first !== undefined) {
+        labels.push({ id: first.id, run: group.run });
+      }
+    }
+    return labels;
+  }
+
+  private postRunLabels(): void {
+    if (this.options.mode === 'gallery') {
+      this.post({ type: 'runs', runs: this.runLabels() });
+    }
   }
 
   private onHistoryEvent(event: HistoryEvent): void {
@@ -235,6 +252,7 @@ export class PlotWebviewSession implements vscode.Disposable {
           // Fresh captures ship with full data: the webview must display them
           // and derive the thumbnail.
           this.post({ type: 'added', entry: this.toWebviewEntry(event.entry, true) });
+          this.postRunLabels();
         } else if (event.entry.id === this.options.pinnedId) {
           // A revived single panel can hydrate before the persisted history
           // is restored; re-send its state once the pinned entry appears.
@@ -243,6 +261,7 @@ export class PlotWebviewSession implements vscode.Disposable {
         break;
       case 'evicted':
         this.post({ type: 'evicted', ids: event.ids });
+        this.postRunLabels();
         break;
       case 'selected':
         if (this.options.mode === 'gallery') {
@@ -268,6 +287,7 @@ export class PlotWebviewSession implements vscode.Disposable {
         notice: pinned === undefined ? 'This plot was removed from the history.' : undefined,
         sessionMode: 'single',
         display: this.displayState(),
+        runs: [],
       });
       return;
     }
@@ -281,6 +301,7 @@ export class PlotWebviewSession implements vscode.Disposable {
       notice: this.host.notice,
       sessionMode: 'gallery',
       display: this.displayState(),
+      runs: this.runLabels(),
     });
   }
 
