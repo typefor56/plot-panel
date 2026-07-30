@@ -9,7 +9,7 @@ two stack traces. Plot Panel keeps every figure your kernel produces in one
 pane, shows your variables in another, and gives you a real Python or R prompt
 at the bottom of the window.
 
-![The three panes in a working session](https://raw.githubusercontent.com/typefor56/plot-panel-forvscode/master/docs/screenshots/plot_panel_big_picture.png)
+![The three panes in a working session](https://raw.githubusercontent.com/typefor56/plot-panel-forvscode/HEAD/docs/screenshots/plot_panel_big_picture.png)
 
 ## The plots pane
 
@@ -22,7 +22,7 @@ The history survives a restart, and each project keeps its own. Open another
 repository and you get a clean strip; come back and your figures are still
 there.
 
-![Plots and variables in the secondary sidebar](https://raw.githubusercontent.com/typefor56/plot-panel-forvscode/master/docs/screenshots/plot_panel_ex1.png)
+![Plots and variables in the secondary sidebar](https://raw.githubusercontent.com/typefor56/plot-panel-forvscode/HEAD/docs/screenshots/plot_panel_ex1.png)
 
 The title bar carries the usual things: previous and next, save, copy, zoom
 presets, and a menu to open a plot in an editor tab or a floating window. There
@@ -49,14 +49,14 @@ does not leave you comparing lists by eye.
 
 ## The console
 
-![The console in the bottom panel](https://raw.githubusercontent.com/typefor56/plot-panel-forvscode/master/docs/screenshots/console_panel.png)
+![The console in the bottom panel](https://raw.githubusercontent.com/typefor56/plot-panel-forvscode/HEAD/docs/screenshots/console_panel.png)
 
 A Python prompt in the bottom panel, next to the terminal. Enter runs, Shift and
 Enter add a line, Tab indents, and the arrows walk back through what you typed.
 Completions come from the session itself, so `df.` lists the columns that frame
 actually has rather than a guess from static analysis.
 
-![Completions offered from the live session](https://raw.githubusercontent.com/typefor56/plot-panel-forvscode/master/docs/screenshots/console_autocompletion.png)
+![Completions offered from the live session](https://raw.githubusercontent.com/typefor56/plot-panel-forvscode/HEAD/docs/screenshots/console_autocompletion.png)
 
 If IPython is available, magics work, including `%run` on a notebook file. You
 can open several sessions, restart one, interrupt a runaway loop, and choose
