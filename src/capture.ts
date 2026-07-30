@@ -110,6 +110,11 @@ export class PlotCapture implements vscode.Disposable {
         ...(code.length > 0 ? { code } : {}),
         notebookUri: notebook.uri.toString(),
         ...(cell.index >= 0 ? { cellIndex: cell.index } : {}),
+        // Distinguishes several figures from ONE execution of a cell from the
+        // same cell run again: both share a cell index, not an execution.
+        ...(cell.executionSummary?.executionOrder !== undefined
+          ? { executionOrder: cell.executionSummary.executionOrder }
+          : {}),
         ...(origin !== undefined
           ? { originUri: origin.uristring, originLine: origin.lineIndex }
           : {}),

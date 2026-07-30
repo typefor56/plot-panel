@@ -32,6 +32,7 @@ interface IndexRecord {
   readonly code?: string;
   readonly notebookUri?: string;
   readonly cellIndex?: number;
+  readonly executionOrder?: number;
   readonly originUri?: string;
   readonly originLine?: number;
 }
@@ -69,6 +70,7 @@ function isRecord(value: unknown): value is IndexRecord {
     (record.code === undefined || typeof record.code === 'string') &&
     (record.notebookUri === undefined || typeof record.notebookUri === 'string') &&
     (record.cellIndex === undefined || typeof record.cellIndex === 'number') &&
+    (record.executionOrder === undefined || typeof record.executionOrder === 'number') &&
     (record.originUri === undefined || typeof record.originUri === 'string') &&
     (record.originLine === undefined || typeof record.originLine === 'number')
   );
@@ -125,6 +127,7 @@ export class PlotStore {
           ...(record.code !== undefined ? { code: record.code } : {}),
           ...(record.notebookUri !== undefined ? { notebookUri: record.notebookUri } : {}),
           ...(record.cellIndex !== undefined ? { cellIndex: record.cellIndex } : {}),
+      ...(record.executionOrder !== undefined ? { executionOrder: record.executionOrder } : {}),
           ...(record.originUri !== undefined ? { originUri: record.originUri } : {}),
           ...(record.originLine !== undefined ? { originLine: record.originLine } : {}),
         });
@@ -228,6 +231,7 @@ export class PlotStore {
         ...(entry.code !== undefined ? { code: entry.code } : {}),
         ...(entry.notebookUri !== undefined ? { notebookUri: entry.notebookUri } : {}),
         ...(entry.cellIndex !== undefined ? { cellIndex: entry.cellIndex } : {}),
+      ...(entry.executionOrder !== undefined ? { executionOrder: entry.executionOrder } : {}),
         ...(entry.originUri !== undefined ? { originUri: entry.originUri } : {}),
         ...(entry.originLine !== undefined ? { originLine: entry.originLine } : {}),
       })),

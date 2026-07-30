@@ -30,8 +30,27 @@ suite('plot history: runs', () => {
     );
   });
 
+  test('several figures from one execution stay in the same run', () => {
+    // A cell looping over plt.show() draws many figures with one execution
+    // count; treating each as a run turned a single Run All into five.
+    const entries = [
+      { timestamp: 1000, notebookUri: NB, cellIndex: 3, executionOrder: 7 },
+      { timestamp: 1010, notebookUri: NB, cellIndex: 3, executionOrder: 7 },
+      { timestamp: 1020, notebookUri: NB, cellIndex: 3, executionOrder: 7 },
+      { timestamp: 1030, notebookUri: NB, cellIndex: 8, executionOrder: 8 },
+    ];
+    assert.deepStrictEqual(shape(entries), [4]);
+  });
+
   test('re-running the same cell counts as a new run', () => {
-    assert.deepStrictEqual(shape([entry(4, 1000), entry(4, 2000), entry(4, 3000)]), [1, 1, 1]);
+    const entries = [
+      { timestamp: 1000, notebookUri: NB, cellIndex: 4, executionOrder: 1 },
+      { timestamp: 2000, notebookUri: NB, cellIndex: 4, executionOrder: 2 },
+      { timestamp: 3000, notebookUri: NB, cellIndex: 4, executionOrder: 3 },
+    ];
+    assert.deepStrictEqual(shape(entries), [1, 1, 1]);
+    // Without execution counts (an older store) the cell alone has to decide.
+    assert.deepStrictEqual(shape([entry(4, 1000), entry(4, 2000)]), [1, 1]);
   });
 
   test('another notebook always starts a run', () => {

@@ -27,6 +27,8 @@ export interface Runnable {
   readonly timestamp: number;
   readonly notebookUri?: string | undefined;
   readonly cellIndex?: number | undefined;
+  /** Execution count of the cell, telling one run of it from the next. */
+  readonly executionOrder?: number | undefined;
 }
 
 /** Silence long enough to read as a separate run, for entries without a cell. */
@@ -37,11 +39,40 @@ function startsRun(entry: Runnable, previous: Runnable): boolean {
     return true;
   }
   if (entry.cellIndex !== undefined && previous.cellIndex !== undefined) {
-    // A run moves down the notebook; going back up, or repeating a cell,
-    // means a new one.
-    return entry.cellIndex <= previous.cellIndex;
+    if (entry.cellIndex < previous.cellIndex) {
+      return true; // back up the notebook: the user started again
+    }
+    if (entry.cellIndex > previous.cellIndex) {
+      return false; // still walking down the same run
+    }
+    // Same cell: one execution of it can draw many figures, and those belong
+    // together. Only a *different* execution of that cell is a new run.
+    return (
+      entry.executionOrder === undefined ||
+      previous.executionOrder === undefined ||
+      entry.executionOrder !== previous.executionOrder
+    );
   }
   return entry.timestamp - previous.timestamp > GAP_MS;
+}
+
+/**
+ * Whether cells finishing at these indices begin a new run, given the
+ * furthest cell the current run has reached.
+ *
+ * Same rule as the plot strip, for the same reason: a run walks the notebook
+ * downwards, so a cell at or above the one already reached means the user
+ * started again. Time is deliberately not used — a Run All whose cell takes
+ * a minute is still one run.
+ */
+export function startsNewRun(
+  finishedIndices: readonly number[],
+  reached: number | undefined,
+): boolean {
+  if (reached === undefined || finishedIndices.length === 0) {
+    return true;
+  }
+  return Math.min(...finishedIndices) <= reached;
 }
 
 /**

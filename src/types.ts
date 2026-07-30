@@ -21,6 +21,8 @@ export interface PlotEntry {
   readonly notebookUri?: string;
   /** Index of the originating cell at capture time (cells may move since). */
   readonly cellIndex?: number;
+  /** Execution count of that cell, identifying one run of it. */
+  readonly executionOrder?: number;
   /** Interactive Window only: the .py file the code was sent from. */
   readonly originUri?: string;
   /** Interactive Window only: 0-based line of the code in `originUri`. */

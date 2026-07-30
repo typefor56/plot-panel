@@ -13,6 +13,7 @@ import type { JupyterVariablesSource, KernelVariable } from './jupyterApi';
 import type { ConsoleSession } from '../console/session';
 import type { ConsoleSessionManager } from '../console/sessionManager';
 import { ExpandRegistry, type PreviewRow, truncate } from './expandTree';
+import { startsNewRun } from '../runs';
 import { parsePythonDefinitions } from './pythonDefs';
 import type { VariablesOptions } from './variablesOptions';
 
@@ -227,8 +228,17 @@ export class VariablesViewProvider implements vscode.WebviewViewProvider, vscode
   >();
   /** When each source was last listed, for the freshness check. */
   private readonly fetchedAt = new Map<string, number>();
-  /** Start of the listing being decorated, to spot what moved during it. */
-  private lastFetchAt = 0;
+  /**
+   * Names that moved during the current run, per source, and how far down the
+   * notebook that run has reached. Highlighting accumulates over a run rather
+   * than over one listing: during a Run All each cell that ends triggers a
+   * listing, and marking only the latest would let every cell erase what the
+   * ones before it changed — which is exactly what it used to do.
+   */
+  private readonly runChanged = new Map<string, Set<string>>();
+  private readonly runReached = new Map<string, number>();
+  /** Epoch of the source being decorated. */
+  private currentRunChanged: ReadonlySet<string> = new Set();
   /** Per-notebook change tracking for the Recent sort (session-scoped). */
   private readonly recency = new Map<string, Map<string, { signature: string; changedAt: number }>>();
   private readonly cancellation = new vscode.CancellationTokenSource();
@@ -259,7 +269,15 @@ export class VariablesViewProvider implements vscode.WebviewViewProvider, vscode
           (change) => change.executionSummary?.timing !== undefined,
         );
         if (finished) {
-          this.fetchedAt.delete(event.notebook.uri.toString());
+          const key = event.notebook.uri.toString();
+          const indices = event.cellChanges
+            .filter((change) => change.executionSummary?.timing !== undefined)
+            .map((change) => change.cell.index);
+          if (startsNewRun(indices, this.runReached.get(key))) {
+            this.runChanged.delete(key);
+          }
+          this.runReached.set(key, Math.max(...indices, this.runReached.get(key) ?? -1));
+          this.fetchedAt.delete(key);
           this.target = { kind: 'notebook', notebook: event.notebook };
           if (this.autoRefresh()) {
             this.scheduleRefresh(REFRESH_DEBOUNCE_MS);
@@ -501,8 +519,12 @@ export class VariablesViewProvider implements vscode.WebviewViewProvider, vscode
       return;
     }
     this.tree = new ExpandRegistry();
-    this.lastFetchAt = Date.now();
+    // A console statement is its own unit of work: nothing to accumulate.
+    if (target.kind === 'console') {
+      this.runChanged.delete(targetKey(target));
+    }
     const changed = this.trackRecency(targetKey(target), listed);
+    this.currentRunChanged = this.runChanged.get(targetKey(target)) ?? new Set();
     this.decorated = listed.map((variable) =>
       this.decorate(variable, changed.get(variable.name) ?? 0),
     );
@@ -553,6 +575,14 @@ export class VariablesViewProvider implements vscode.WebviewViewProvider, vscode
       known = new Map();
       this.recency.set(uriKey, known);
     }
+    // On the very first listing everything is "new", which is not news:
+    // marking the whole panel would say nothing about what just ran.
+    const firstListing = known.size === 0;
+    let epoch = this.runChanged.get(uriKey);
+    if (epoch === undefined) {
+      epoch = new Set();
+      this.runChanged.set(uriKey, epoch);
+    }
     const now = Date.now();
     const seen = new Set<string>();
     const changedAt = new Map<string, number>();
@@ -563,6 +593,9 @@ export class VariablesViewProvider implements vscode.WebviewViewProvider, vscode
       if (previous === undefined || previous.signature !== signature) {
         known.set(variable.name, { signature, changedAt: now });
         changedAt.set(variable.name, now);
+        if (!firstListing) {
+          epoch.add(variable.name);
+        }
       } else {
         changedAt.set(variable.name, previous.changedAt);
       }
@@ -615,7 +648,7 @@ export class VariablesViewProvider implements vscode.WebviewViewProvider, vscode
         name: variable.name,
         // A value that moved in this listing is worth pointing out, which is
         // what the Recent sort already tracks.
-        ...(changedAt > 0 && changedAt >= this.lastFetchAt ? { changed: true } : {}),
+        ...(this.currentRunChanged.has(variable.name) ? { changed: true } : {}),
         value: truncate(formatVariableValue(variable.type, variable.value)),
         typeHint: typeHint(variable.type, count),
         expandable,
