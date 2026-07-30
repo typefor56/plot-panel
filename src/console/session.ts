@@ -1,6 +1,7 @@
 import { type ChildProcessWithoutNullStreams, spawn } from 'node:child_process';
 import type { ChildVariable } from '../variables/inspect';
 import type { KernelVariable } from '../variables/jupyterApi';
+import type { Runtime } from './interpreter';
 
 /**
  * One interactive Python session: a child process running
@@ -24,7 +25,13 @@ export interface TranscriptEntry {
 const SCROLLBACK_LIMIT = 5000;
 
 interface PendingRequest {
-  readonly resolve: (data: readonly unknown[]) => void;
+  readonly resolve: (frame: Record<string, unknown>) => void;
+}
+
+export interface Completions {
+  /** Index in the line where the replaced token starts. */
+  readonly start: number;
+  readonly items: readonly string[];
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -76,13 +83,17 @@ export class ConsoleSession {
 
   constructor(
     readonly id: number,
-    private readonly interpreter: string,
+    readonly runtime: Runtime,
     private readonly driverPath: string,
     private readonly cwd: string | undefined,
   ) {}
 
+  /** Language name plus the version the driver reported once it started. */
   get label(): string {
-    return `Python ${this.interpreterLabel}`.trim();
+    const language = this.runtime.language === 'r' ? 'R' : 'Python';
+    return this.interpreterLabel.length > 0
+      ? `${language} ${this.interpreterLabel}`
+      : this.runtime.label;
   }
 
   get state(): SessionState {
@@ -110,14 +121,18 @@ export class ConsoleSession {
 
   start(): void {
     this.setState('starting');
+    const args =
+      this.runtime.language === 'r'
+        ? ['--vanilla', this.driverPath]
+        : ['-u', this.driverPath];
     let child: ChildProcessWithoutNullStreams;
     try {
-      child = spawn(this.interpreter, ['-u', this.driverPath], {
+      child = spawn(this.runtime.command, args, {
         ...(this.cwd === undefined ? {} : { cwd: this.cwd }),
         env: { ...process.env, PYTHONIOENCODING: 'utf-8' },
       });
     } catch {
-      this.append({ kind: 'err', text: `Could not start ${this.interpreter}.\n` });
+      this.append({ kind: 'err', text: `Could not start ${this.runtime.command}.\n` });
       this.setState('exited');
       return;
     }
@@ -186,12 +201,13 @@ export class ConsoleSession {
         this.setState('idle');
         break;
       case 'vars':
-      case 'children': {
+      case 'children':
+      case 'complete': {
         const id = typeof frame['id'] === 'number' ? frame['id'] : 0;
         const request = this.pending.get(id);
         if (request !== undefined) {
           this.pending.delete(id);
-          request.resolve(Array.isArray(frame['data']) ? frame['data'] : []);
+          request.resolve(frame);
         }
         break;
       }
@@ -208,7 +224,7 @@ export class ConsoleSession {
   }
 
   async listVariables(): Promise<readonly KernelVariable[]> {
-    const data = await this.request('vars', {});
+    const data = await this.requestData('vars', {});
     const variables: KernelVariable[] = [];
     for (const item of data) {
       const variable = toKernelVariable(item);
@@ -223,7 +239,7 @@ export class ConsoleSession {
     if (this.currentState === 'exited') {
       return undefined;
     }
-    const data = await this.request('children', { expression });
+    const data = await this.requestData('children', { expression });
     const children: ChildVariable[] = [];
     for (const item of data) {
       const child = toChildVariable(item);
@@ -234,11 +250,41 @@ export class ConsoleSession {
     return children;
   }
 
-  private request(op: string, extra: Record<string, unknown>): Promise<readonly unknown[]> {
+  /**
+   * Completions for a line, computed against the live namespace — which in a
+   * REPL beats static analysis, since the interpreter knows what the objects
+   * really are.
+   */
+  async complete(line: string, position: number): Promise<Completions> {
+    const empty: Completions = { start: position, items: [] };
+    if (this.currentState === 'exited') {
+      return empty;
+    }
+    const frame = await this.request('complete', { line, position });
+    const start = frame['start'];
+    const items = frame['items'];
+    if (typeof start !== 'number' || !Array.isArray(items)) {
+      return empty;
+    }
+    return { start, items: items.filter((item): item is string => typeof item === 'string') };
+  }
+
+  private async requestData(
+    op: string,
+    extra: Record<string, unknown>,
+  ): Promise<readonly unknown[]> {
+    const frame = await this.request(op, extra);
+    return Array.isArray(frame['data']) ? frame['data'] : [];
+  }
+
+  private request(
+    op: string,
+    extra: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
     const id = this.nextRequestId++;
-    return new Promise<readonly unknown[]>((resolve) => {
+    return new Promise<Record<string, unknown>>((resolve) => {
       if (!this.send({ id, op, ...extra })) {
-        resolve([]);
+        resolve({});
         return;
       }
       this.pending.set(id, { resolve });
@@ -288,7 +334,7 @@ export class ConsoleSession {
 
   private failPending(): void {
     for (const [, request] of this.pending) {
-      request.resolve([]);
+      request.resolve({});
     }
     this.pending.clear();
   }

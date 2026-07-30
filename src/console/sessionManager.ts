@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { resolveInterpreter } from './interpreter';
+import { type Runtime, resolveInterpreter } from './interpreter';
 import { ConsoleSession } from './session';
 
 /**
@@ -37,20 +37,21 @@ export class ConsoleSessionManager implements vscode.Disposable {
     return existing ?? (await this.create());
   }
 
-  async create(): Promise<ConsoleSession> {
+  /** Start a session on `runtime`, or on the workspace's Python by default. */
+  async create(runtime?: Runtime): Promise<ConsoleSession> {
     const folder = vscode.workspace.workspaceFolders?.[0];
-    const interpreter = await resolveInterpreter(folder?.uri);
+    const chosen: Runtime = runtime ?? {
+      language: 'python',
+      command: await resolveInterpreter(folder?.uri),
+      label: 'Python',
+      detail: 'workspace interpreter',
+    };
     const driverPath = vscode.Uri.joinPath(
       this.extensionUri,
       'media',
-      'console_driver.py',
+      chosen.language === 'r' ? 'console_driver.R' : 'console_driver.py',
     ).fsPath;
-    const session = new ConsoleSession(
-      this.nextId++,
-      interpreter,
-      driverPath,
-      folder?.uri.fsPath,
-    );
+    const session = new ConsoleSession(this.nextId++, chosen, driverPath, folder?.uri.fsPath);
     this.sessions.push(session);
     this.perSession.set(
       session.id,

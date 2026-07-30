@@ -68,7 +68,12 @@ suite('console session', function () {
   });
 
   setup(async () => {
-    session = new ConsoleSession(1, 'python3', DRIVER, undefined);
+    session = new ConsoleSession(
+      1,
+      { language: 'python', command: 'python3', label: 'Python', detail: 'test' },
+      DRIVER,
+      undefined,
+    );
     session.start();
     await waitFor(session, () => session?.state === 'idle');
   });
@@ -171,6 +176,32 @@ suite('console session', function () {
       variables.some((variable) => variable.name === 'gone'),
       false,
     );
+  });
+
+  test('completes names and attributes from the live namespace', async () => {
+    assert.ok(session);
+    await run(session, 'calls_per_day = [1, 2, 3]');
+
+    const names = await session.complete('call', 4);
+    assert.strictEqual(names.start, 0);
+    assert.ok(names.items.includes('calls_per_day'), names.items.join(','));
+
+    // Attribute completion only works because the namespace is live.
+    const attributes = await session.complete('calls_per_day.app', 17);
+    assert.strictEqual(attributes.start, 0);
+    assert.ok(
+      attributes.items.includes('calls_per_day.append'),
+      attributes.items.join(','),
+    );
+  });
+
+  test('completes mid-line, replacing only the token', async () => {
+    assert.ok(session);
+    await run(session, 'value = 1');
+    const line = 'print(val';
+    const completions = await session.complete(line, line.length);
+    assert.strictEqual(completions.start, 'print('.length);
+    assert.ok(completions.items.includes('value'), completions.items.join(','));
   });
 
   test('clear empties the transcript but keeps the session', async () => {

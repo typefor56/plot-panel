@@ -14,6 +14,7 @@
   const scrollback = document.getElementById('scrollback');
   const promptLabel = document.getElementById('prompt');
   const input = document.getElementById('input');
+  const popup = document.getElementById('completions');
 
   /** Submitted lines, oldest first; browsed with the arrow keys. */
   const history = [];
@@ -25,10 +26,14 @@
     return scrollback.scrollHeight - scrollback.scrollTop - scrollback.clientHeight < 24;
   }
 
+  // Nothing here interprets terminal escapes, and a library that colours its
+  // own output would otherwise show the raw codes.
+  const ANSI = /\u001b\[[0-9;?]*[ -/]*[@-~]/g;
+
   function appendEntry(entry, stick) {
     const line = document.createElement('span');
     line.className = 'line-' + entry.kind;
-    line.textContent = entry.text;
+    line.textContent = entry.text.replace(ANSI, '');
     scrollback.appendChild(line);
     if (stick) {
       scrollback.scrollTop = scrollback.scrollHeight;
@@ -87,22 +92,13 @@
     return tab;
   }
 
+  // No "+" here: the title bar already carries one, next to interrupt and
+  // restart, and two buttons for the same action is one too many.
   function renderTabs(sessions) {
     tabs.textContent = '';
     for (const session of sessions) {
       tabs.appendChild(makeTab(session));
     }
-    const add = document.createElement('button');
-    add.id = 'new-session';
-    add.type = 'button';
-    add.textContent = '+';
-    add.title = 'New Python console';
-    add.setAttribute('aria-label', 'New Python console');
-    add.addEventListener('click', () => {
-      vscode.postMessage({ type: 'new' });
-      input.focus();
-    });
-    tabs.appendChild(add);
   }
 
   function applyStatus(prompt, busy) {
@@ -116,6 +112,7 @@
   }
 
   function submit() {
+    closeCompletions();
     const code = input.value;
     if (code.trim().length > 0) {
       history.push(code);
@@ -146,7 +143,121 @@
     return true;
   }
 
+  // --- completions ---------------------------------------------------------
+
+  const INDENT = '    ';
+  let completionStart = 0;
+  let completionItems = [];
+  let selected = 0;
+  let completionTimer = 0;
+  let completionToken = 0;
+
+  function completionsOpen() {
+    return completionItems.length > 0;
+  }
+
+  function closeCompletions() {
+    completionItems = [];
+    selected = 0;
+    popup.hidden = true;
+    popup.textContent = '';
+  }
+
+  function renderCompletions() {
+    popup.textContent = '';
+    completionItems.forEach((item, index) => {
+      const row = document.createElement('div');
+      row.className = index === selected ? 'completion selected' : 'completion';
+      row.textContent = item;
+      row.addEventListener('mousedown', (event) => {
+        // mousedown, not click: the textarea must not lose the caret first.
+        event.preventDefault();
+        selected = index;
+        acceptCompletion();
+      });
+      popup.appendChild(row);
+    });
+    popup.hidden = false;
+    const active = popup.children[selected];
+    if (active !== undefined) {
+      active.scrollIntoView({ block: 'nearest' });
+    }
+  }
+
+  function moveSelection(delta) {
+    selected = (selected + delta + completionItems.length) % completionItems.length;
+    renderCompletions();
+  }
+
+  function acceptCompletion() {
+    const item = completionItems[selected];
+    if (item === undefined) {
+      return;
+    }
+    const before = input.value.slice(0, completionStart);
+    const after = input.value.slice(input.selectionEnd);
+    input.value = before + item + after;
+    const caret = before.length + item.length;
+    input.setSelectionRange(caret, caret);
+    closeCompletions();
+    resize();
+  }
+
+  function requestCompletions(explicit) {
+    const token = ++completionToken;
+    vscode.postMessage({
+      type: 'complete',
+      token,
+      line: input.value,
+      position: input.selectionEnd,
+      explicit: explicit === true,
+    });
+  }
+
+  function scheduleCompletions() {
+    clearTimeout(completionTimer);
+    completionTimer = setTimeout(() => requestCompletions(false), 150);
+  }
+
   input.addEventListener('keydown', (event) => {
+    if (completionsOpen()) {
+      if (event.key === 'ArrowDown') {
+        moveSelection(1);
+        event.preventDefault();
+        return;
+      }
+      if (event.key === 'ArrowUp') {
+        moveSelection(-1);
+        event.preventDefault();
+        return;
+      }
+      if (event.key === 'Enter' || event.key === 'Tab') {
+        acceptCompletion();
+        event.preventDefault();
+        return;
+      }
+      if (event.key === 'Escape') {
+        closeCompletions();
+        event.preventDefault();
+        return;
+      }
+    }
+    // Ctrl+Space asks explicitly, as in the editor.
+    if (event.key === ' ' && (event.ctrlKey || event.metaKey)) {
+      requestCompletions(true);
+      event.preventDefault();
+      return;
+    }
+    // Tab indents rather than leaving the console.
+    if (event.key === 'Tab') {
+      const start = input.selectionStart;
+      const end = input.selectionEnd;
+      input.value = input.value.slice(0, start) + INDENT + input.value.slice(end);
+      input.setSelectionRange(start + INDENT.length, start + INDENT.length);
+      resize();
+      event.preventDefault();
+      return;
+    }
     if (event.key === 'Enter' && !event.shiftKey) {
       submit();
       event.preventDefault();
@@ -167,7 +278,18 @@
     }
   });
 
-  input.addEventListener('input', resize);
+  input.addEventListener('input', () => {
+    resize();
+    const before = input.value.slice(0, input.selectionEnd);
+    // Only suggest while typing a name, an attribute or a magic.
+    if (/[A-Za-z0-9_.%]$/.test(before)) {
+      scheduleCompletions();
+    } else {
+      closeCompletions();
+    }
+  });
+
+  input.addEventListener('blur', closeCompletions);
 
   // Clicking anywhere in the transcript should let the user keep typing,
   // unless they are selecting text to copy.
@@ -192,6 +314,21 @@
       case 'append': {
         const stick = atBottom();
         appendEntry(message.entry, stick);
+        break;
+      }
+      case 'completions': {
+        // Ignore a reply the user has already typed past.
+        if (message.token !== completionToken) {
+          break;
+        }
+        completionStart = message.start;
+        completionItems = message.items;
+        selected = 0;
+        if (completionItems.length === 0) {
+          closeCompletions();
+        } else {
+          renderCompletions();
+        }
         break;
       }
     }

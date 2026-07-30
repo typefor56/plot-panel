@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { PlotCapture } from './capture';
 import { registerCommands } from './commands';
 import { ConsoleViewProvider } from './console/consoleView';
+import { listRuntimes } from './console/interpreter';
 import { ConsoleSessionManager } from './console/sessionManager';
 import { ContextKeys } from './contextKeys';
 import { DisplayOptions } from './displayOptions';
@@ -115,18 +116,22 @@ export function activate(context: vscode.ExtensionContext): PlotPanelApi {
         consoles.close(active.id);
       }
     }),
-    // The Python extension owns interpreter selection; a new session then
-    // picks the new choice up (a running one keeps the one it started with).
+    // Pick the runtime for a NEW session: a running interpreter cannot be
+    // swapped underneath a live namespace.
     vscode.commands.registerCommand('plotPanel.selectConsoleInterpreter', async () => {
-      try {
-        await vscode.commands.executeCommand('python.setInterpreter');
-      } catch {
-        void vscode.window.showErrorMessage(
-          'Plot Panel: the Python extension is required to choose an interpreter.',
-        );
+      const runtimes = await listRuntimes();
+      const picked = await vscode.window.showQuickPick(
+        runtimes.map((runtime) => ({
+          label: runtime.label,
+          detail: runtime.detail,
+          runtime,
+        })),
+        { title: 'Start a console with', placeHolder: 'Select a runtime' },
+      );
+      if (picked === undefined) {
         return;
       }
-      await consoles.create();
+      await consoles.create(picked.runtime);
       await consoleView.reveal();
     }),
     vscode.commands.registerCommand('plotPanel.sendSelectionToConsole', async () => {

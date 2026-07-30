@@ -34,6 +34,12 @@ type ToConsoleMessage =
       readonly sessions: readonly SessionTab[];
       readonly prompt: string;
       readonly busy: boolean;
+    }
+  | {
+      readonly type: 'completions';
+      readonly token: number;
+      readonly start: number;
+      readonly items: readonly string[];
     };
 
 type FromConsoleMessage =
@@ -41,7 +47,13 @@ type FromConsoleMessage =
   | { readonly type: 'execute'; readonly code: string }
   | { readonly type: 'select'; readonly id: number }
   | { readonly type: 'close'; readonly id: number }
-  | { readonly type: 'new' };
+  | { readonly type: 'new' }
+  | {
+      readonly type: 'complete';
+      readonly token: number;
+      readonly line: string;
+      readonly position: number;
+    };
 
 export class ConsoleViewProvider implements vscode.WebviewViewProvider, vscode.Disposable {
   static readonly viewType = 'plotPanel.console';
@@ -109,6 +121,20 @@ export class ConsoleViewProvider implements vscode.WebviewViewProvider, vscode.D
       case 'new':
         await this.sessions.create();
         break;
+      case 'complete': {
+        const session = this.sessions.active;
+        if (session === undefined) {
+          break;
+        }
+        const completions = await session.complete(message.line, message.position);
+        this.post({
+          type: 'completions',
+          token: message.token,
+          start: completions.start,
+          items: completions.items,
+        });
+        break;
+      }
     }
   }
 
@@ -196,10 +222,13 @@ export class ConsoleViewProvider implements vscode.WebviewViewProvider, vscode.D
 <body>
   <nav id="tabs" aria-label="Console sessions"></nav>
   <div id="scrollback" role="log" aria-live="polite" aria-label="Console output"></div>
-  <div id="input-row">
-    <span id="prompt" aria-hidden="true">&gt;&gt;&gt;</span>
-    <textarea id="input" rows="1" spellcheck="false" autocomplete="off"
-              aria-label="Python input"></textarea>
+  <div id="input-area">
+    <div id="completions" role="listbox" aria-label="Completions" hidden></div>
+    <div id="input-row">
+      <span id="prompt" aria-hidden="true">&gt;&gt;&gt;</span>
+      <textarea id="input" rows="1" spellcheck="false" autocomplete="off"
+                aria-label="Console input"></textarea>
+    </div>
   </div>
   <script nonce="${nonce}" src="${scriptUri}"></script>
 </body>

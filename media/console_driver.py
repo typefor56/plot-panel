@@ -33,6 +33,8 @@ Unlike a Jupyter kernel, this one reports functions and classes too, and
 import codeop
 import io
 import json
+import keyword
+import rlcompleter
 import sys
 import threading
 import traceback
@@ -166,11 +168,59 @@ def _describe_child(name, expression, child):
     }
 
 
+def _make_shell():
+    """
+    An IPython shell when the environment has one, so magics work: %run
+    (including on .ipynb files), %timeit, !shell and the rest are what a data
+    science console is expected to offer, and reimplementing them would be
+    both large and worse. Falls back to plain exec when IPython is absent.
+    """
+    try:
+        from IPython.core.interactiveshell import InteractiveShell
+    except Exception:
+        return None
+    try:
+        shell = InteractiveShell.instance()
+        # IPython prints "Out[N]: ..." itself; results travel as their own
+        # frames here, so silence its display hook rather than double up.
+        shell.displayhook.write_output_prompt = lambda: None
+        shell.displayhook.write_format_data = lambda data, metadata=None: None
+        # Tracebacks default to stdout dressed in ANSI colours. Take the same
+        # hook ipykernel uses so they arrive as error frames instead, and drop
+        # the colours: there is no terminal here to interpret the escapes.
+        for formatter in (shell.InteractiveTB, shell.SyntaxTB):
+            for method, argument in (("set_theme_name", "nocolor"), ("set_colors", "NoColor")):
+                try:
+                    getattr(formatter, method)(argument)
+                    break
+                except Exception:
+                    continue
+
+        def show_traceback(etype, evalue, stb):
+            _emit(t="err", id=_ACTIVE_ID, s="\n".join(stb) + "\n")
+
+        shell._showtraceback = show_traceback
+        return shell
+    except Exception:
+        return None
+
+
 class Session:
     def __init__(self):
-        self.globals = {"__name__": "__console__", "__doc__": None}
+        self.shell = _make_shell()
+        if self.shell is not None:
+            self.namespace = self.shell.user_ns
+            self.hidden = set(getattr(self.shell, "user_ns_hidden", {}))
+            self.hidden.update(["In", "Out", "get_ipython", "exit", "quit", "open"])
+        else:
+            self.namespace = {"__name__": "__console__", "__doc__": None}
+            self.hidden = set()
         self.buffer = []
         self.compile = codeop.CommandCompiler()
+
+    @property
+    def globals(self):
+        return self.namespace
 
     # -- execution --------------------------------------------------------
 
@@ -178,6 +228,8 @@ class Session:
         """Feed one line. Returns True when more input is expected."""
         self.buffer.append(source)
         joined = "\n".join(self.buffer)
+        if self.shell is not None:
+            return self._execute_ipython(joined)
         try:
             code = self.compile(joined, "<console>", "single")
         except (OverflowError, SyntaxError, ValueError):
@@ -188,6 +240,32 @@ class Session:
             return True
         self.buffer = []
         self._run(code)
+        return False
+
+    def _execute_ipython(self, joined):
+        shell = self.shell
+        if shell is None:
+            return False
+        try:
+            status, _indent = shell.check_complete(joined)
+        except Exception:
+            status = "complete"
+        if status == "incomplete":
+            return True
+        self.buffer = []
+        try:
+            # IPython reports syntax errors and tracebacks through
+            # showtraceback(), which writes to the redirected stderr.
+            result = shell.run_cell(joined, store_history=True)
+        except KeyboardInterrupt:
+            _emit(t="err", id=_ACTIVE_ID, s="\nKeyboardInterrupt\n")
+            return False
+        except BaseException:
+            _emit(t="err", id=_ACTIVE_ID, s=traceback.format_exc())
+            return False
+        value = getattr(result, "result", None)
+        if value is not None and getattr(result, "success", False):
+            _emit(t="result", id=_ACTIVE_ID, s=_repr(value, VALUE_CAP))
         return False
 
     def _run(self, code):
@@ -217,10 +295,68 @@ class Session:
 
     # -- introspection ----------------------------------------------------
 
+    def complete(self, line, position):
+        """
+        Completions for the token ending at `position`, from the live
+        namespace — which beats any static analysis in a REPL, since it knows
+        what the objects actually are. Returns where the token starts so the
+        caller can replace exactly that much text.
+        """
+        prefix = line[:position]
+        start = len(prefix)
+        while start > 0 and (prefix[start - 1].isalnum() or prefix[start - 1] in "_."):
+            start -= 1
+        token = prefix[start:]
+
+        # A magic is only a magic at the start of the line.
+        if self.shell is not None and prefix[:start].strip() == "" and token == "":
+            if prefix.strip().startswith("%"):
+                return {"start": start, "items": self._magics(prefix.strip())}
+        if prefix.lstrip().startswith("%") and self.shell is not None:
+            return {"start": start, "items": self._magics(token)}
+
+        items = []
+        seen = set()
+        try:
+            completer = rlcompleter.Completer(self.namespace)
+            for index in range(200):
+                match = completer.complete(token, index)
+                if match is None:
+                    break
+                # rlcompleter marks callables with a trailing "(".
+                match = match.rstrip("(")
+                if match and match not in seen:
+                    seen.add(match)
+                    items.append(match)
+        except Exception:
+            pass
+        if "." not in token:
+            for word in keyword.kwlist:
+                if word.startswith(token) and word not in seen:
+                    seen.add(word)
+                    items.append(word)
+        items.sort(key=lambda name: (name.startswith("_"), name.lower()))
+        return {"start": start, "items": items[:100]}
+
+    def _magics(self, token):
+        shell = self.shell
+        if shell is None:
+            return []
+        bare = token.lstrip("%")
+        try:
+            names = list(shell.magics_manager.magics.get("line", {}))
+            names += list(shell.magics_manager.magics.get("cell", {}))
+        except Exception:
+            return []
+        found = sorted({"%" + name for name in names if name.startswith(bare)})
+        return found[:100]
+
     def list_variables(self):
         out = []
         for name, obj in list(self.globals.items()):
-            if name in _INTERNAL or name.startswith("__"):
+            # Leading underscores are private by convention, and IPython fills
+            # the namespace with _, __, _i, _i1, _12 … input/output history.
+            if name in _INTERNAL or name in self.hidden or name.startswith("_"):
                 continue
             if type(obj).__name__ == "module":
                 continue
@@ -321,14 +457,17 @@ class Session:
 
 def main():
     global _ACTIVE_ID
-    session = Session()
+    # Redirect first: IPython binds to the streams that exist when its shell
+    # is built, and its tracebacks must travel as frames like everything else.
     sys.stdout = _FramedStream("out")
     sys.stderr = _FramedStream("err")
     sys.stdin = _ClosedStdin()
+    session = Session()
     _emit(
         t="ready",
         version="%d.%d.%d" % sys.version_info[:3],
         executable=sys.executable,
+        magics=session.shell is not None,
     )
     while True:
         try:
@@ -355,6 +494,13 @@ def main():
                     t="children",
                     id=_ACTIVE_ID,
                     data=session.children(request.get("expression", "")),
+                )
+            elif op == "complete":
+                line = request.get("line", "")
+                _emit(
+                    t="complete",
+                    id=_ACTIVE_ID,
+                    **session.complete(line, request.get("position", len(line))),
                 )
             elif op == "reset":
                 session = Session()

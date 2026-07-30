@@ -74,7 +74,7 @@
       },
       {
         "command": "plotPanel.savePlot",
-        "title": "Save Plot As…",
+        "title": "Save Plot As\u2026",
         "category": "Plot Panel",
         "icon": "$(save)"
       },
@@ -92,7 +92,7 @@
       },
       {
         "command": "plotPanel.exportAll",
-        "title": "Export All Plots…",
+        "title": "Export All Plots\u2026",
         "category": "Plot Panel",
         "icon": "$(save-all)"
       },
@@ -273,8 +273,9 @@
       },
       {
         "command": "plotPanel.selectConsoleInterpreter",
-        "title": "Select Console Interpreter…",
-        "category": "Plot Panel"
+        "title": "Start Console With\u2026",
+        "category": "Plot Panel",
+        "icon": "$(chevron-down)"
       },
       {
         "command": "plotPanel.sendSelectionToConsole",
@@ -400,7 +401,8 @@
         },
         {
           "command": "plotPanel.selectConsoleInterpreter",
-          "when": "view == plotPanel.console"
+          "when": "view == plotPanel.console",
+          "group": "navigation@5"
         },
         {
           "command": "plotPanel.closeConsole",
