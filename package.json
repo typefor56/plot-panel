@@ -26,9 +26,24 @@
           "title": "Plots",
           "icon": "media/icon.svg"
         }
+      ],
+      "panel": [
+        {
+          "id": "plotPanelConsole",
+          "title": "Console",
+          "icon": "$(terminal)"
+        }
       ]
     },
     "views": {
+      "plotPanelConsole": [
+        {
+          "type": "webview",
+          "id": "plotPanel.console",
+          "name": "Console",
+          "contextualTitle": "Console"
+        }
+      ],
       "plotPanel": [
         {
           "type": "webview",
@@ -226,6 +241,45 @@
         "command": "plotPanel.variablesResetColumnWidth",
         "title": "Reset Variables Column Width",
         "category": "Plot Panel"
+      },
+      {
+        "command": "plotPanel.newConsole",
+        "title": "New Python Console",
+        "category": "Plot Panel",
+        "icon": "$(add)"
+      },
+      {
+        "command": "plotPanel.clearConsole",
+        "title": "Clear Console",
+        "category": "Plot Panel",
+        "icon": "$(clear-all)"
+      },
+      {
+        "command": "plotPanel.restartConsole",
+        "title": "Restart Console",
+        "category": "Plot Panel",
+        "icon": "$(debug-restart)"
+      },
+      {
+        "command": "plotPanel.interruptConsole",
+        "title": "Interrupt Console",
+        "category": "Plot Panel",
+        "icon": "$(debug-stop)"
+      },
+      {
+        "command": "plotPanel.closeConsole",
+        "title": "Close Console Session",
+        "category": "Plot Panel"
+      },
+      {
+        "command": "plotPanel.selectConsoleInterpreter",
+        "title": "Select Console Interpreter…",
+        "category": "Plot Panel"
+      },
+      {
+        "command": "plotPanel.sendSelectionToConsole",
+        "title": "Send Selection to Console",
+        "category": "Plot Panel"
       }
     ],
     "submenus": [
@@ -323,6 +377,41 @@
         {
           "command": "plotPanel.variablesResetColumnWidth",
           "when": "view == plotPanel.variables"
+        },
+        {
+          "command": "plotPanel.interruptConsole",
+          "when": "view == plotPanel.console",
+          "group": "navigation@1"
+        },
+        {
+          "command": "plotPanel.restartConsole",
+          "when": "view == plotPanel.console",
+          "group": "navigation@2"
+        },
+        {
+          "command": "plotPanel.clearConsole",
+          "when": "view == plotPanel.console",
+          "group": "navigation@3"
+        },
+        {
+          "command": "plotPanel.newConsole",
+          "when": "view == plotPanel.console",
+          "group": "navigation@4"
+        },
+        {
+          "command": "plotPanel.selectConsoleInterpreter",
+          "when": "view == plotPanel.console"
+        },
+        {
+          "command": "plotPanel.closeConsole",
+          "when": "view == plotPanel.console"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "plotPanel.sendSelectionToConsole",
+          "when": "editorHasSelection && editorLangId == python",
+          "group": "1_run@1"
         }
       ],
       "editor/title": [
@@ -487,6 +576,12 @@
         "command": "plotPanel.nextPlot",
         "key": "right",
         "when": "focusedView == plotPanel.plots"
+      },
+      {
+        "command": "plotPanel.sendSelectionToConsole",
+        "key": "ctrl+enter",
+        "mac": "cmd+enter",
+        "when": "editorTextFocus && editorLangId == python && !notebookEditorFocused"
       }
     ],
     "configuration": {

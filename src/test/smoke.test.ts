@@ -45,6 +45,13 @@ suite('Smoke', () => {
       'plotPanel.variablesSortBySize',
       'plotPanel.variablesSortByRecent',
       'plotPanel.variablesResetColumnWidth',
+      'plotPanel.newConsole',
+      'plotPanel.clearConsole',
+      'plotPanel.restartConsole',
+      'plotPanel.interruptConsole',
+      'plotPanel.closeConsole',
+      'plotPanel.selectConsoleInterpreter',
+      'plotPanel.sendSelectionToConsole',
     ]) {
       assert.ok(commands.includes(id), `command ${id} is not registered`);
     }

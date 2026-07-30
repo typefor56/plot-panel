@@ -1,6 +1,8 @@
 import * as vscode from 'vscode';
 import { PlotCapture } from './capture';
 import { registerCommands } from './commands';
+import { ConsoleViewProvider } from './console/consoleView';
+import { ConsoleSessionManager } from './console/sessionManager';
 import { ContextKeys } from './contextKeys';
 import { DisplayOptions } from './displayOptions';
 import { PanelManager } from './galleryPanel';
@@ -57,6 +59,8 @@ export function activate(context: vscode.ExtensionContext): PlotPanelApi {
     variablesSource,
     variablesOptions,
   );
+  const consoles = new ConsoleSessionManager(context.extensionUri);
+  const consoleView = new ConsoleViewProvider(context.extensionUri, consoles);
 
   context.subscriptions.push(
     capture,
@@ -86,6 +90,62 @@ export function activate(context: vscode.ExtensionContext): PlotPanelApi {
     vscode.commands.registerCommand('plotPanel.variablesResetColumnWidth', () =>
       variables.resetColumnWidth(),
     ),
+    consoles,
+    consoleView,
+    vscode.window.registerWebviewViewProvider(ConsoleViewProvider.viewType, consoleView),
+    vscode.commands.registerCommand('plotPanel.newConsole', async () => {
+      await consoles.create();
+      await consoleView.reveal();
+    }),
+    vscode.commands.registerCommand('plotPanel.clearConsole', () => {
+      consoles.active?.clear();
+      consoleView.refresh();
+    }),
+    vscode.commands.registerCommand('plotPanel.restartConsole', () => {
+      consoles.active?.restart();
+      consoleView.refresh();
+    }),
+    vscode.commands.registerCommand('plotPanel.interruptConsole', () =>
+      consoles.active?.interrupt(),
+    ),
+    vscode.commands.registerCommand('plotPanel.closeConsole', () => {
+      const active = consoles.active;
+      if (active !== undefined) {
+        consoles.close(active.id);
+      }
+    }),
+    // The Python extension owns interpreter selection; a new session then
+    // picks the new choice up (a running one keeps the one it started with).
+    vscode.commands.registerCommand('plotPanel.selectConsoleInterpreter', async () => {
+      try {
+        await vscode.commands.executeCommand('python.setInterpreter');
+      } catch {
+        void vscode.window.showErrorMessage(
+          'Plot Panel: the Python extension is required to choose an interpreter.',
+        );
+        return;
+      }
+      await consoles.create();
+      await consoleView.reveal();
+    }),
+    vscode.commands.registerCommand('plotPanel.sendSelectionToConsole', async () => {
+      const editor = vscode.window.activeTextEditor;
+      if (editor === undefined) {
+        return;
+      }
+      const selected = editor.document.getText(editor.selection);
+      const line = editor.document.lineAt(editor.selection.active.line).text;
+      const code = selected.trim().length > 0 ? selected : line;
+      const session = await consoles.ensureActive();
+      await consoleView.reveal();
+      for (const one of code.replace(/\r/g, '').split('\n')) {
+        session.execute(one);
+      }
+      // A block needs its blank line, exactly as when typed.
+      if (code.includes('\n')) {
+        session.execute('');
+      }
+    }),
     vscode.window.registerWebviewViewProvider(PlotsViewProvider.viewType, provider),
     capture.onUnsupportedOutput((mime, source) => {
       registry.broadcastNotice(
