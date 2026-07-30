@@ -210,8 +210,11 @@ children_of <- function(expression) {
     keys <- utils::head(names(object), CHILD_CAP)
     for (key in keys) {
       child <- tryCatch(object[[key]], error = function(e) NULL)
+      ## deparse() turns the key into a valid R literal. Pasting it between
+      ## quotes instead would let a column named with a quote close the string
+      ## and have the rest evaluated as code when the child is expanded.
       out[[length(out) + 1L]] <- describe_child(
-        key, paste0(expression, "[[\"", key, "\"]]"), child
+        key, paste0(expression, "[[", deparse(key), "]]"), child
       )
     }
   } else if (is.list(object) || is.vector(object)) {
@@ -228,7 +231,7 @@ children_of <- function(expression) {
     for (slot in utils::head(methods::slotNames(object), CHILD_CAP)) {
       child <- tryCatch(methods::slot(object, slot), error = function(e) NULL)
       out[[length(out) + 1L]] <- describe_child(
-        slot, paste0(expression, "@", slot), child
+        slot, paste0(expression, "@`", slot, "`"), child
       )
     }
   }

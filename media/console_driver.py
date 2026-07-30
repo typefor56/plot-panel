@@ -333,6 +333,13 @@ class Session:
         if paths is not None:
             return paths
 
+        # rlcompleter evaluates whatever precedes the last dot to look up
+        # attributes. On a line like `launch(missiles).s` that would run the
+        # call the user has not submitted yet, so only a plain dotted name is
+        # ever handed to it.
+        if "." in token and re.fullmatch(r"[A-Za-z_]\w*(?:\.\w*)*", token) is None:
+            return {"start": start, "items": []}
+
         items = []
         seen = set()
         try:
@@ -362,6 +369,10 @@ class Session:
         leaf = name
         if "." in name:
             head, _, leaf = name.rpartition(".")
+            # Same rule as above: only resolve a plain dotted name, never an
+            # arbitrary expression, since describing it means evaluating it.
+            if re.fullmatch(r"[A-Za-z_]\w*(?:\.\w+)*", head) is None:
+                return {"label": name, "kind": "value", "detail": ""}
             try:
                 target = eval(head, self.namespace)
             except Exception:
