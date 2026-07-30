@@ -3,11 +3,13 @@ import { ExpandRegistry, type PreviewRow } from '../variables/expandTree';
 import {
   DF_LARGE,
   DF_SMALL,
+  DF_TIGHT_HEADER,
   DICT_SMALL,
   LIST_SMALL,
   ND_BIG,
   S_DATETIME,
   S_INT_LARGE,
+  S_NAMED_INDEX,
   S_SMALL_NAMED,
 } from './reprFixtures';
 
@@ -72,6 +74,39 @@ suite('expansion: pandas Series', () => {
       assert.strictEqual(row.expression, '');
       assert.strictEqual(row.viewerType, undefined);
     }
+  });
+});
+
+suite('expansion: shapes taken from a real notebook', () => {
+  test('a groupby Series expands despite its named index line', () => {
+    const { tree, expandable } = registry('pandas.core.series.Series', S_NAMED_INDEX);
+    assert.strictEqual(expandable, true, 'the chevron never appeared for this Series');
+    const rows = tree.childrenOf('root');
+    assert.deepStrictEqual(names(rows), ['1999-01-01', '1999-01-04', '1999-01-05']);
+    assert.deepStrictEqual(
+      rows?.map((row) => row.value),
+      ['5', '7', '2'],
+    );
+  });
+
+  test('a frame whose header names touch still yields every column', () => {
+    const { tree, expandable } = registry('pandas.core.frame.DataFrame', DF_TIGHT_HEADER);
+    assert.strictEqual(expandable, true);
+    const columns = tree.childrenOf('root') ?? [];
+    // 18 columns: splitting the header on two spaces only ever found 13.
+    assert.strictEqual(columns.length, 18);
+    assert.deepStrictEqual(names(columns).slice(0, 5), [
+      'vru+line',
+      'call_id',
+      'customer_id',
+      'priority',
+      'type',
+    ]);
+    const cells = tree.childrenOf(columns[3]?.nodeId ?? '');
+    assert.deepStrictEqual(
+      cells?.map((row) => row.value),
+      ['2', '0', '2'],
+    );
   });
 });
 

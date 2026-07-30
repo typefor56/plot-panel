@@ -29,3 +29,11 @@ export const ND_1D = "array([ 5,  7,  2,  3,  3,  1, 23,  2, 11], dtype=int8)";
 export const ND_2D = "array([[1., 2.],\n       [3., 4.]])";
 export const ND_BIG = "array([5.0000e-01, 1.5000e+00, 2.5000e+00, ..., 4.0795e+03, 4.0805e+03,\n       4.0815e+03])";
 export const ND_PLAIN_INT = "array([5, 7, 2])";
+
+// Captured from a real call-centre notebook (TP1): a groupby result, whose
+// named index prints on a line of its own above the pairs.
+export const S_NAMED_INDEX = "datetime\n1999-01-01     5\n1999-01-04     7\n1999-01-05     2\ndtype: int64";
+
+// Same notebook: a frame whose header names are as wide as their columns, so
+// several are separated by a single space ("priority type", "q_time outcome").
+export const DF_TIGHT_HEADER = "      vru+line  call_id  customer_id  priority type    date vru_entry  vru_exit  vru_time   q_start    q_exit  q_time outcome ser_start  ser_exit  ser_time     server month_name\n0       AA0101    33116    9664491.0         2   PS  990101   0:00:31   0:00:36         5   0:00:36   0:03:09     153    HANG   0:00:00   0:00:00         0  NO_SERVER    january\n1       AA0101    33117          0.0         0   PS  990101   0:34:12   0:34:23        11   0:00:00   0:00:00       0    HANG   0:00:00   0:00:00         0  NO_SERVER    january\n2       AA0101    33118   27997683.0         2   PS  990101   6:55:20   6:55:26         6   6:55:26   6:55:43      17   AGENT   6:55:43   6:56:37        54     MICHAL    january\n\n[31599 rows x 18 columns]";

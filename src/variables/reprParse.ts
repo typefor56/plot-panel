@@ -64,6 +64,12 @@ function splitAtLastGap(line: string): readonly [string, string] | undefined {
 
 export function parseSeriesRepr(raw: string): SeriesRepr | undefined {
   const lines = raw.split('\n').filter((line) => line.trim().length > 0);
+  // A named index prints its name on a line of its own above the pairs
+  // ("datetime" for a groupby result). It is not a pair; drop it.
+  const first = lines[0];
+  if (lines.length > 1 && first !== undefined && splitAtLastGap(first.trimEnd()) === undefined) {
+    lines.shift();
+  }
   const last = lines.at(-1);
   if (last === undefined) {
     return undefined;
@@ -108,6 +114,46 @@ export function parseSeriesRepr(raw: string): SeriesRepr | undefined {
   };
 }
 
+/** End offset of every >=2-space separated token in a line. */
+function tokenEnds(line: string): number[] {
+  const ends: number[] = [];
+  TWO_SPACES.lastIndex = 0;
+  let start = 0;
+  for (let match = TWO_SPACES.exec(line); match !== null; match = TWO_SPACES.exec(line)) {
+    if (match.index > start) {
+      ends.push(match.index);
+    }
+    start = match.index + match[0].length;
+  }
+  if (start < line.length) {
+    ends.push(line.length);
+  }
+  return ends;
+}
+
+/**
+ * Column names sliced at the data rows' own column boundaries.
+ *
+ * Splitting the header on runs of two spaces fails whenever a name is as wide
+ * as its column: pandas then leaves a single space before the next one
+ * ("priority type", "q_time outcome"), and the header yields fewer tokens
+ * than the rows. Both header and values are right-aligned to the same column
+ * width, so the rows' token end offsets are the reliable boundaries.
+ */
+function headerByPosition(header: string, ends: readonly number[]): string[] | undefined {
+  const names: string[] = [];
+  for (let index = 1; index < ends.length; index++) {
+    const from = ends[index - 1] ?? 0;
+    const to = ends[index] ?? header.length;
+    const name = header.slice(from, to).trim();
+    if (name.length === 0) {
+      return undefined;
+    }
+    names.push(name);
+  }
+  return names.length > 0 ? names : undefined;
+}
+
 export function parseDataFrameRepr(raw: string): DataFrameGrid | undefined {
   const allLines = raw.split('\n');
   const lines: string[] = [];
@@ -136,7 +182,22 @@ export function parseDataFrameRepr(raw: string): DataFrameGrid | undefined {
   if (headerTokens.length === 0 || headerTokens.some((token) => token.trim().length === 0)) {
     return undefined;
   }
-  const columns = headerTokens.map((token) => token.trim());
+  let columns = headerTokens.map((token) => token.trim());
+  // When the header splits into fewer names than the rows have cells, the
+  // names were not all separated by two spaces; recover them by position.
+  const sample = lines
+    .slice(1)
+    .find((line) => !/^\s*\.{2,}(\s|$)/.test(line));
+  if (sample !== undefined) {
+    const ends = tokenEnds(sample);
+    if (ends.length !== columns.length + 1) {
+      const byPosition = headerByPosition(header, ends);
+      if (byPosition === undefined) {
+        return undefined;
+      }
+      columns = byPosition;
+    }
+  }
   const rows: { index: string; cells: string[] }[] = [];
   let gapAt: number | undefined;
   for (const line of lines.slice(1)) {
