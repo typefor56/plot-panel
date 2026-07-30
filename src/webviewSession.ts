@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 import * as vscode from 'vscode';
 import type { DisplayMode, DisplayOptions } from './displayOptions';
 import type { HistoryEvent, PlotHistory } from './history';
+import { type RunGroup, groupIntoRuns } from './runs';
 import type { ThumbnailCache } from './thumbnails';
 import type { PlotEntry } from './types';
 
@@ -43,6 +44,10 @@ interface WebviewEntry {
   readonly mime: string;
   readonly source: string;
   readonly timestamp: number;
+  /** 1-based run this figure came from; the strip labels each group once. */
+  readonly run: number;
+  /** True for the first figure of its run, which carries the label. */
+  readonly runStart: boolean;
   /** Reduced preview for the strip; absent when none exists yet. */
   readonly thumbUri?: string;
   /** Full-resolution image; only sent for the selected entry or fresh captures. */
@@ -193,11 +198,17 @@ export class PlotWebviewSession implements vscode.Disposable {
   }
 
   private toWebviewEntry(entry: PlotEntry, includeData: boolean): WebviewEntry {
+    const position = this.history.entries.indexOf(entry);
+    const group = this.runs().find(
+      (run) => position >= run.startIndex && position < run.startIndex + run.count,
+    );
     const base = {
       id: entry.id,
       mime: entry.mime,
       source: entry.source,
       timestamp: entry.timestamp,
+      run: group?.run ?? 1,
+      runStart: group?.startIndex === position,
     };
     const thumb = this.thumbnails.get(entry.id);
     return {
@@ -210,6 +221,11 @@ export class PlotWebviewSession implements vscode.Disposable {
           : {}),
       ...(includeData ? { dataUri: toDataUri(entry.mime, entry.data) } : {}),
     };
+  }
+
+  /** Run boundaries of the current history, recomputed per state build. */
+  private runs(): readonly RunGroup[] {
+    return groupIntoRuns(this.history.entries);
   }
 
   private onHistoryEvent(event: HistoryEvent): void {

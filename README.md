@@ -23,6 +23,12 @@ to open it, it only offers previous/next arrows without any overview, and it
 lives in an editor tab that the next opened file replaces. Plot Panel is:
 
 - **automatic** — figures appear as they are produced, without any action;
+- **grouped by run** — the strip marks where each run started (`Run 1`,
+  `Run 2`…), so the figures of one execution stay together. Runs are inferred
+  from the cells the figures came from: a run walks the notebook downwards, so
+  a capture at or above the previous one opens the next one;
+- **per project** — each workspace keeps its own history, so another project
+  starts from an empty strip and coming back restores what was there;
 - **permanent** — it is a view, not an editor tab; dock it in the secondary
   sidebar and it stays there;
 - **navigable** — the thumbnail strip shows the whole session at a glance, and
@@ -221,6 +227,7 @@ prefers the vector representation — crisper zooming, usually smaller files.
 | `Plot Panel: Group Variables by Kind / Size` | Group Variables By dropdown |
 | `Plot Panel: Sort Variables by Name / Size / Recently Changed` | Sort Variables By dropdown |
 | `Plot Panel: Reset Variables Column Width` | Variables view `…` menu |
+| `Plot Panel: Clear Variables` | title bar of the Variables view |
 | `Plot Panel: New / Clear / Restart / Interrupt / Close Console` | title bar of the Console panel |
 | `Plot Panel: Select Console Interpreter…` | Console `…` menu; opens a session with the new choice |
 | `Plot Panel: Send Selection to Console` | editor context menu, or Ctrl+Enter in a Python file |

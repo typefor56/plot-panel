@@ -45,6 +45,7 @@ suite('Smoke', () => {
       'plotPanel.variablesSortBySize',
       'plotPanel.variablesSortByRecent',
       'plotPanel.variablesResetColumnWidth',
+      'plotPanel.clearVariables',
       'plotPanel.newConsole',
       'plotPanel.clearConsole',
       'plotPanel.restartConsole',

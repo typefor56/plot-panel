@@ -361,6 +361,14 @@ export class ConsoleSession {
     this.emitChange();
   }
 
+  /** Drop every user variable, keeping the process and the transcript. */
+  resetNamespace(): void {
+    this.append({ kind: 'notice', text: 'Variables cleared.\n' });
+    if (this.send({ id: this.nextRequestId++, op: 'reset' })) {
+      this.setState('busy');
+    }
+  }
+
   /** Fresh process, empty namespace; the transcript is kept with a marker. */
   restart(): void {
     this.stop();

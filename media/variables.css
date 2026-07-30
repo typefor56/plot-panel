@@ -281,8 +281,30 @@ body.busy #list {
 }
 
 /* A value that moved in the latest listing, so a long run does not leave the
-   eye hunting for what actually changed. */
+   eye hunting for what actually changed. The row also flashes briefly, which
+   is what makes it read as "just now" rather than a permanent state — a
+   variable re-assigned the same value is deliberately not marked, since
+   nothing about it actually moved. */
 .var-row.just-changed .var-name {
   color: var(--vscode-gitDecoration-modifiedResourceForeground, var(--vscode-charts-blue));
   font-weight: 600;
+}
+
+.var-row.just-changed {
+  animation: variable-changed 1.2s ease-out 1;
+}
+
+@keyframes variable-changed {
+  from {
+    background-color: var(--vscode-list-activeSelectionBackground);
+  }
+  to {
+    background-color: transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .var-row.just-changed {
+    animation: none;
+  }
 }

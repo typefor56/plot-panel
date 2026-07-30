@@ -151,6 +151,18 @@
     }
     strip.textContent = '';
     for (const entry of entries) {
+      // Each run opens with a labelled divider, so a long history reads as
+      // "the figures from that run" rather than one undifferentiated wall.
+      if (entry.runStart === true) {
+        const marker = document.createElement('div');
+        marker.className = 'run-marker';
+        const label = document.createElement('span');
+        label.className = 'run-label';
+        label.textContent = 'Run ' + entry.run;
+        marker.appendChild(label);
+        marker.title = 'Figures produced by run ' + entry.run;
+        strip.appendChild(marker);
+      }
       const button = document.createElement('button');
       button.type = 'button';
       button.className = 'thumb';

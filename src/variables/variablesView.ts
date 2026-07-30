@@ -645,6 +645,44 @@ export class VariablesViewProvider implements vscode.WebviewViewProvider, vscode
     }
   }
 
+  /**
+   * Empty the session the view is showing.
+   *
+   * A console is ours, so its namespace is simply reset. A notebook kernel
+   * cannot be made to run anything from here — that is the gated API — so the
+   * only way to clear it is Jupyter's own restart, which is destructive
+   * enough to be worth confirming.
+   */
+  async clearVariables(): Promise<void> {
+    const target = this.target;
+    if (target === undefined) {
+      return;
+    }
+    if (target.kind === 'console') {
+      target.session.resetNamespace();
+      return;
+    }
+    const confirm = 'Restart Kernel';
+    const answer = await vscode.window.showWarningMessage(
+      `Clearing the variables of ${notebookLabel(target.notebook)} restarts its kernel: ` +
+        'everything it holds is lost.',
+      { modal: true },
+      confirm,
+    );
+    if (answer !== confirm) {
+      return;
+    }
+    try {
+      await vscode.commands.executeCommand('jupyter.restartkernel');
+    } catch {
+      void vscode.window.showErrorMessage('Plot Panel: could not restart the notebook kernel.');
+      return;
+    }
+    this.recency.delete(targetKey(target));
+    this.fetchedAt.delete(targetKey(target));
+    this.scheduleRefresh(REFRESH_DEBOUNCE_MS);
+  }
+
   /** Drop the pinned column width so it auto-sizes to the longest name again. */
   resetColumnWidth(): void {
     this.options.setNameWidth(undefined);

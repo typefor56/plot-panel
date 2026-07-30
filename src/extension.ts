@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import * as vscode from 'vscode';
 import { PlotCapture } from './capture';
 import { registerCommands } from './commands';
@@ -32,6 +33,20 @@ function configuration(): vscode.WorkspaceConfiguration {
   return vscode.workspace.getConfiguration('plotPanel');
 }
 
+/**
+ * Storage bucket for the plot history: one per project, so opening another
+ * one starts from a clean strip and coming back restores the figures that
+ * were there. Hashed rather than derived from the path, which can contain
+ * anything a directory name cannot.
+ */
+function workspaceKey(): string {
+  const folder = vscode.workspace.workspaceFolders?.[0]?.uri.toString();
+  if (folder === undefined) {
+    return 'no-workspace';
+  }
+  return createHash('sha256').update(folder).digest('hex').slice(0, 16);
+}
+
 export function activate(context: vscode.ExtensionContext): PlotPanelApi {
   const history = new PlotHistory(configuration().get('historyLimit', 50));
   const capture = new PlotCapture(history, () => configuration().get('followLatest', true));
@@ -45,7 +60,9 @@ export function activate(context: vscode.ExtensionContext): PlotPanelApi {
     display,
     registry,
   );
-  const store = new PlotStore(vscode.Uri.joinPath(context.globalStorageUri, 'plots'));
+  const store = new PlotStore(
+    vscode.Uri.joinPath(context.globalStorageUri, `plots-${workspaceKey()}`),
+  );
   const panels = new PanelManager(context.extensionUri, history, thumbnails, display, registry);
   // The Jupyter Kernels API is publisher-gated: probing it on stable would
   // only earn a denial toast, so expansion is attempted where access is
@@ -95,6 +112,7 @@ export function activate(context: vscode.ExtensionContext): PlotPanelApi {
     vscode.commands.registerCommand('plotPanel.variablesResetColumnWidth', () =>
       variables.resetColumnWidth(),
     ),
+    vscode.commands.registerCommand('plotPanel.clearVariables', () => variables.clearVariables()),
     consoles,
     consoleView,
     vscode.window.registerWebviewViewProvider(ConsoleViewProvider.viewType, consoleView),

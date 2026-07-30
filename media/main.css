@@ -97,6 +97,34 @@ body.dark-filter .thumb img {
   background-color: var(--vscode-sideBarSectionHeader-background, transparent);
 }
 
+/* Divider opening each run: a hairline with the run number set against it,
+   so the groups read at a glance without stealing height from the strip. */
+.run-marker {
+  flex: 0 0 auto;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  padding: 0 6px 0 2px;
+  margin-left: 2px;
+  border-left: 1px solid var(--vscode-widget-border, var(--vscode-panel-border, transparent));
+  user-select: none;
+}
+
+.run-marker:first-child {
+  border-left: none;
+  margin-left: 0;
+  padding-left: 0;
+}
+
+.run-label {
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  font-size: 0.75em;
+  letter-spacing: 0.04em;
+  color: var(--vscode-descriptionForeground);
+  white-space: nowrap;
+}
+
 .thumb {
   flex: 0 0 auto;
   width: 64px;
