@@ -53,6 +53,13 @@ CHILD_CAP = 100
 VALUE_CAP = 65536
 CHILD_VALUE_CAP = 120
 
+#: What may be evaluated to resolve an attribute while typing: a name, its
+#: attributes, and subscripts whose key is a literal. Never a call, so nothing
+#: the user has not submitted can run.
+SAFE_TARGET = re.compile(
+    r"[A-Za-z_]\w*(?:\.\w+|\[\s*(?:-?\d+|'[^'\\]*'|\"[^\"\\]*\")\s*\])*"
+)
+
 #: Names the driver itself binds; never reported as user variables. "_" is
 #: the last expression result, which the REPL rebinds constantly.
 _INTERNAL = {"_", "__builtins__", "__name__", "__doc__", "__package__", "__loader__", "__spec__"}
@@ -314,7 +321,10 @@ class Session:
         """
         prefix = line[:position]
         start = len(prefix)
-        while start > 0 and (prefix[start - 1].isalnum() or prefix[start - 1] in "_."):
+        # Subscripts belong to the token: `frames[0].` and `df["col"].` are how
+        # half of pandas work is written, and stopping at the bracket would
+        # leave them without completions.
+        while start > 0 and (prefix[start - 1].isalnum() or prefix[start - 1] in "_.[]'\""):
             start -= 1
         token = prefix[start:]
 
@@ -333,12 +343,28 @@ class Session:
         if paths is not None:
             return paths
 
-        # rlcompleter evaluates whatever precedes the last dot to look up
-        # attributes. On a line like `launch(missiles).s` that would run the
-        # call the user has not submitted yet, so only a plain dotted name is
-        # ever handed to it.
-        if "." in token and re.fullmatch(r"[A-Za-z_]\w*(?:\.\w*)*", token) is None:
-            return {"start": start, "items": []}
+        # Attributes are resolved here rather than by rlcompleter, which
+        # evaluates whatever precedes the last dot: on `launch(missiles).s`
+        # that runs the call before the user has submitted anything. Only
+        # names, attributes and literal subscripts are ever evaluated, so no
+        # call the user has not written can be triggered by typing.
+        if "." in token:
+            head, _, partial = token.rpartition(".")
+            if SAFE_TARGET.fullmatch(head) is None:
+                return {"start": start, "items": []}
+            try:
+                obj = eval(head, self.namespace)
+            except Exception:
+                return {"start": start, "items": []}
+            names = sorted(
+                name
+                for name in dir(obj)
+                if name.startswith(partial) and (partial.startswith("_") or not name.startswith("_"))
+            )
+            return {
+                "start": start,
+                "items": [self._describe_attribute(head, obj, name) for name in names[:100]],
+            }
 
         items = []
         seen = set()
@@ -362,6 +388,28 @@ class Session:
                     items.append(word)
         items.sort(key=lambda name: (name.startswith("_"), name.lower()))
         return {"start": start, "items": [self._describe(name) for name in items[:100]]}
+
+    def _describe_attribute(self, head, obj, name):
+        """Describe an attribute of an object already resolved, without re-evaluating."""
+        try:
+            value = getattr(obj, name)
+        except Exception:
+            return {"label": head + "." + name, "kind": "value", "detail": ""}
+        return {
+            "label": head + "." + name,
+            "kind": self._kind_of(value),
+            "detail": type(value).__name__,
+        }
+
+    @staticmethod
+    def _kind_of(value):
+        if isinstance(value, type):
+            return "class"
+        if callable(value):
+            return "function"
+        if type(value).__name__ == "module":
+            return "module"
+        return "value"
 
     def _describe(self, name):
         """Label plus the kind and type the view shows beside it."""
