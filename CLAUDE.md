@@ -39,7 +39,8 @@ avec un périmètre Python uniquement.
 | `src/console/sessionManager.ts` | Sessions vivantes + session active (patron émetteur maison) ; une vue contribuée n'existe qu'une fois par fenêtre, d'où les onglets internes |
 | `src/console/interpreter.ts` | Résolution de l'interpréteur : API extension Python (interface écrite à la main) → `python.defaultInterpreterPath` → `python3` |
 | `src/console/consoleView.ts` | `WebviewViewProvider` de la Console dans le panneau du bas |
-| `media/console_driver.py` | Driver REPL stdlib pure, embarqué dans le `.vsix` ; `codeop.compile_command` pour la continuation, `vars`/`children` au format JSON de `inspect.ts` |
+| `media/console_driver.py` | Driver REPL stdlib pure, embarqué dans le `.vsix` ; IPython si présent (magics), sinon `codeop.compile_command` ; `vars`/`children`/`complete` au format JSON de `inspect.ts` |
+| `media/console_driver.R` | Même protocole en R base seule (JSON lu et écrit à la main : pas de jsonlite garanti) |
 | `media/console.js` / `console.css` | Côté webview console : onglets de sessions, scrollback, saisie avec historique |
 | `src/variables/childType.ts` | Inférence du type d'une valeur imbriquée depuis son repr + sonde d'expansibilité. Pur |
 | `src/variables/pythonDefs.ts` | Extraction des `def`/`class` de premier niveau (signatures multi-lignes, docstrings ignorées). Pur |
@@ -242,6 +243,25 @@ Toute violation est un échec du projet, pas un compromis acceptable :
   résultat et sortie, et rend la continuation explicite
   (`codeop.compile_command` : `None` = incomplet, objet code = complet,
   `SyntaxError` = invalide — les **trois** branches comptent).
+- **Exécution via IPython quand il est là** : les magics (`%run` y compris sur
+  un `.ipynb`, `%timeit`, `!shell`) sont attendues d'une console data science
+  et les réimplémenter serait long et moins bon. Trois pièges vérifiés :
+  IPython écrit ses tracebacks sur **stdout en couleurs ANSI** (on prend le
+  hook `_showtraceback`, comme ipykernel, et on met le thème `nocolor`) ; il
+  se lie aux flux **existant au moment de sa construction** (donc rediriger
+  stdout/stderr AVANT de l'instancier) ; et il peuple le namespace de `_`,
+  `_i`, `_i1` (filtrés).
+- **Complétion par `rlcompleter` sur le namespace vivant**, pas par l'analyse
+  statique de VS Code : dans un REPL l'interpréteur sait ce que sont vraiment
+  les objets (`df.` liste les colonnes réelles). Le completer d'IPython 9 est
+  soit vide hors contexte, soit une API « provisional » — écarté.
+- **R = second driver, même protocole** (`console_driver.R`), en R base
+  uniquement : aucun paquet n'est garanti installé, donc le JSON est lu et
+  écrit à la main. On lance **`Rscript`** et non `R` (il exécute un fichier en
+  laissant stdin libre pour le protocole). Piège vérifié : ne jamais émettre
+  une frame pendant qu'un `sink()` est actif, sinon elle atterrit dans la
+  sortie capturée. Les classes R pointées (`data.frame`) sont matchées **en
+  entier** dans `categorize` : la règle du dernier segment en ferait « frame ».
 - **Une vue contribuée n'existe qu'une fois par fenêtre** (pas d'API stable
   pour une seconde instance) : les multiples sessions vivent donc dans l'unique
   webview derrière une barre d'onglets, comme Positron.

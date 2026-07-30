@@ -31,6 +31,12 @@ export const CATEGORY_LABELS: Readonly<Record<VariableCategory, string>> = {
 
 const DATA_TYPES = new Set(['DataFrame', 'Series', 'Index']);
 
+/**
+ * R class names, matched whole. They must not go through the last-segment
+ * rule: "data.frame" is one name, not a module path ending in "frame".
+ */
+const R_DATA_TYPES = new Set(['data.frame', 'tbl_df', 'data.table', 'matrix', 'array']);
+
 /** Types whose hint keeps the root package ("pandas.DataFrame", "numpy.ndarray"). */
 const PREFIXED_TYPES = new Set(['DataFrame', 'Series', 'Index', 'ndarray']);
 
@@ -55,6 +61,9 @@ function lastSegment(type: string): string {
 }
 
 export function categorize(type: string): VariableCategory {
+  if (R_DATA_TYPES.has(type)) {
+    return 'data';
+  }
   const short = lastSegment(type);
   if (DATA_TYPES.has(short)) {
     return 'data';
@@ -74,6 +83,9 @@ export function categorize(type: string): VariableCategory {
  * element count for indexed containers ("list (12)").
  */
 export function typeHint(type: string, indexedChildrenCount: number): string {
+  if (R_DATA_TYPES.has(type)) {
+    return type;
+  }
   const short = lastSegment(type);
   const root = type.includes('.') ? type.slice(0, type.indexOf('.')) : '';
   const name = PREFIXED_TYPES.has(short) && root.length > 0 ? `${root}.${short}` : short;
@@ -171,7 +183,7 @@ export function variableSize(type: string, raw: string, indexedChildrenCount: nu
  *  DataFrames stay bare — their size is visible in the value column. */
 export function variableCount(type: string, raw: string, indexedChildrenCount: number): number {
   const short = lastSegment(type);
-  if (short === 'DataFrame' || short === 'str') {
+  if (short === 'DataFrame' || short === 'str' || R_DATA_TYPES.has(type)) {
     return 0;
   }
   return variableSize(type, raw, indexedChildrenCount);

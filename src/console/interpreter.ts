@@ -159,23 +159,16 @@ export async function listRuntimes(): Promise<readonly Runtime[]> {
   return runtimes;
 }
 
-/** R, if an interpreter is reachable. Uses the same probe shape as Python. */
+/**
+ * R, when it is reachable. Rscript rather than R: it runs a script file while
+ * leaving stdin free for the protocol, which is what the driver needs.
+ */
 async function findR(): Promise<Runtime | undefined> {
-  const configured = vscode.workspace.getConfiguration('r').get<string>('rterm.linux');
-  for (const candidate of [configured, 'R'].filter(
-    (value): value is string => typeof value === 'string' && value.length > 0,
-  )) {
-    const version = await probeVersion(candidate, ['--version']);
-    if (version !== undefined) {
-      return {
-        language: 'r',
-        command: candidate,
-        label: `R ${version}`.trim(),
-        detail: candidate,
-      };
-    }
+  const version = await probeVersion('Rscript', ['--version']);
+  if (version === undefined) {
+    return undefined;
   }
-  return undefined;
+  return { language: 'r', command: 'Rscript', label: `R ${version}`, detail: 'Rscript' };
 }
 
 function probeVersion(command: string, args: readonly string[]): Promise<string | undefined> {

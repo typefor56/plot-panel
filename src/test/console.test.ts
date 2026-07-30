@@ -8,15 +8,21 @@ import { ConsoleSession } from '../console/session';
  * python3 is on PATH so the suite stays runnable on a bare machine.
  */
 
-const DRIVER = path.join(__dirname, '..', '..', 'media', 'console_driver.py');
+const MEDIA = path.join(__dirname, '..', '..', 'media');
+const DRIVER = path.join(MEDIA, 'console_driver.py');
+const R_DRIVER = path.join(MEDIA, 'console_driver.R');
 
-function pythonAvailable(): boolean {
+function available(command: string): boolean {
   try {
-    execFileSync('python3', ['--version'], { stdio: 'ignore' });
+    execFileSync(command, ['--version'], { stdio: 'ignore' });
     return true;
   } catch {
     return false;
   }
+}
+
+function pythonAvailable(): boolean {
+  return available('python3');
 }
 
 function waitFor(session: ConsoleSession, done: () => boolean, timeoutMs = 15000): Promise<void> {
@@ -211,5 +217,99 @@ suite('console session', function () {
     assert.strictEqual(session.transcript.length, 0);
     await run(session, '7 * 6');
     assert.match(transcriptOf(session, 'result'), /42/);
+  });
+});
+
+/**
+ * The R driver is a separate implementation of the same protocol, so the
+ * host code must drive it without knowing which language it is talking to.
+ */
+suite('console session: R', function () {
+  this.timeout(60000);
+
+  let session: ConsoleSession | undefined;
+
+  suiteSetup(function () {
+    if (!available('Rscript')) {
+      this.skip();
+    }
+  });
+
+  setup(async () => {
+    session = new ConsoleSession(
+      1,
+      { language: 'r', command: 'Rscript', label: 'R', detail: 'test' },
+      R_DRIVER,
+      undefined,
+    );
+    session.start();
+    await waitFor(session, () => session?.state === 'idle');
+  });
+
+  teardown(() => {
+    session?.dispose();
+    session = undefined;
+  });
+
+  test('runs a statement and reports its value', async () => {
+    assert.ok(session);
+    assert.match(session.label, /^R \d+\.\d+/);
+    await run(session, 'x <- 41 + 1');
+    await run(session, 'x');
+    assert.match(transcriptOf(session, 'result'), /42/);
+  });
+
+  test('separates printed output, errors and results', async () => {
+    assert.ok(session);
+    await run(session, 'cat("printed\\n")');
+    assert.match(transcriptOf(session, 'out'), /printed/);
+    await run(session, 'stop("boom")');
+    assert.match(transcriptOf(session, 'err'), /boom/);
+    await run(session, '"alive"');
+    assert.match(transcriptOf(session, 'result'), /alive/);
+  });
+
+  test('asks for more input until a block closes', async () => {
+    assert.ok(session);
+    await run(session, 'twice <- function(n) {');
+    assert.strictEqual(session.needsMoreInput, true);
+    await run(session, '  n * 2');
+    assert.strictEqual(session.needsMoreInput, true);
+    await run(session, '}');
+    assert.strictEqual(session.needsMoreInput, false);
+    await run(session, 'twice(21)');
+    assert.match(transcriptOf(session, 'result'), /42/);
+  });
+
+  test('lists variables and expands a data frame into its columns', async () => {
+    assert.ok(session);
+    await run(session, 'df <- data.frame(a = 1:3, b = c("p", "q", "r"))');
+    const variables = await session.listVariables();
+    const frame = variables.find((variable) => variable.name === 'df');
+    assert.ok(frame, 'df is missing');
+    assert.strictEqual(frame.type, 'data.frame');
+    assert.strictEqual(frame.indexedChildrenCount, 6);
+
+    const columns = await session.listChildren('df');
+    assert.deepStrictEqual(
+      columns?.map((column) => column.name),
+      ['a', 'b'],
+    );
+    const cells = await session.listChildren(columns?.[0]?.expression ?? '');
+    assert.deepStrictEqual(
+      cells?.map((cell) => cell.value),
+      ['[1] 1', '[1] 2', '[1] 3'],
+    );
+  });
+
+  test('completes names from the live session', async () => {
+    assert.ok(session);
+    await run(session, 'my_measurements <- 1:3');
+    const completions = await session.complete('my_me', 5);
+    assert.strictEqual(completions.start, 0);
+    assert.ok(
+      completions.items.includes('my_measurements'),
+      completions.items.slice(0, 5).join(','),
+    );
   });
 });

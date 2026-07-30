@@ -156,11 +156,25 @@ it, and switches back when you activate a notebook again.
 
 Enter runs a line, Shift+Enter adds one; a compound statement continues on
 `...` until a blank line, as in any REPL, and the arrow keys browse history.
+Tab indents, and **Ctrl+Space** (or simply typing a name) offers completions
+taken from the live session — the interpreter knows what the objects really
+are, so `df.` lists that frame's own members. Enter or Tab accepts.
+
+When the environment has **IPython**, magics work: `%run script.py`,
+`%run notebook.ipynb`, `%timeit`, `!shell` and the rest. Without it the
+console falls back to plain Python, and magics are unavailable.
+
 The title bar offers interrupt (Ctrl+C into the running statement), restart
-(fresh process, empty namespace), clear, and a `+` for another session —
-several sessions share the one tab, since a contributed view exists once per
-window. *Send Selection to Console* (Ctrl+Enter in a Python file) pushes the
-selection, or the current line.
+(fresh process, empty namespace), clear, a `+` for another session, and a
+chevron that starts one on **any interpreter the Python extension knows
+about, or on R** when `Rscript` is installed. Several sessions share the one
+tab, since a contributed view exists once per window. *Send Selection to
+Console* (Ctrl+Enter in a Python file) pushes the selection, or the current
+line.
+
+R sessions get the same treatment — variables, expansion into a data frame's
+columns, completions — through a second driver speaking the same protocol.
+They have no magics: those are an IPython feature.
 
 **Performance**: refreshing asks the kernel to describe every variable
 (that is Jupyter's own introspection script running on the kernel, with
