@@ -1,281 +1,134 @@
 # Plot Panel
 
-A permanent plot pane for VS Code, in the spirit of RStudio and Positron.
+A plots pane, a variables explorer and an interactive console for VS Code, so
+notebook work feels less like scrolling through a log.
 
-Plot Panel automatically captures every figure produced by Jupyter kernels —
-from notebooks **and** from the Interactive Window (`# %%` cells) — and shows
-them in a dedicated view: the current figure on top, resized to fit without
-distortion, and a clickable thumbnail strip of the whole session history below.
-No clicking on outputs, no lost figures: iterate on your model, and glance back
-at the plot from three runs ago.
+If you use notebooks for data work, you know the pattern: you plot something,
+run three more cells, and now the figure you wanted is somewhere above, between
+two stack traces. Plot Panel keeps every figure your kernel produces in one
+pane, shows your variables in another, and gives you a real Python or R prompt
+at the bottom of the window.
 
-Around that core, the extension recreates the rest of the Positron experience:
-a Positron-style toolbar (zoom presets, sizing policies, a dark filter for
-bright figures), plots and a full gallery openable in editor tabs or floating
-windows, actions on the code that produced a plot (copy / reveal / run again),
-and a **Jupyter Variables** view that groups the kernel's variables into
-DATA / VALUES / FUNCTIONS / CLASSES sections with a filter field.
+## The plots pane
 
-## How it differs from the built-in Plot Viewer
+Figures land there by themselves, from notebooks and from the Interactive
+Window. The current one is shown large, the whole session sits underneath as
+thumbnails, and the strip marks where each run started so you can find the
+figures from a given run without counting.
 
-The Jupyter extension's Plot Viewer is passive: you must double-click an output
-to open it, it only offers previous/next arrows without any overview, and it
-lives in an editor tab that the next opened file replaces. Plot Panel is:
+The history survives a restart, and each project keeps its own. Open another
+repository and you get a clean strip; come back and your figures are still
+there.
 
-- **automatic** — figures appear as they are produced, without any action;
-- **grouped by run** — the strip marks where each run started (`Run 1`,
-  `Run 2`…), so the figures of one execution stay together. Runs are inferred
-  from the cells the figures came from: a run walks the notebook downwards, so
-  a capture at or above the previous one opens the next one;
-- **per project** — each workspace keeps its own history, so another project
-  starts from an empty strip and coming back restores what was there;
-- **permanent** — it is a view, not an editor tab; dock it in the secondary
-  sidebar and it stays there;
-- **navigable** — the thumbnail strip shows the whole session at a glance, and
-  clicking a thumbnail (or using the arrow keys / title-bar buttons) brings any
-  earlier figure back;
-- **persistent** — the history survives restarting VS Code. It is stored in
-  the extension's global storage (as plain image files plus an index, never in
-  `workspaceState`), reduced thumbnails included, and pruned automatically
-  when entries are evicted or cleared.
+The title bar carries the usual things: previous and next, save, copy, zoom
+presets, and a menu to open a plot in an editor tab or a floating window. There
+is a dark filter for figures that are too bright against a dark theme, and a
+Plot Code menu that copies the code behind a figure, jumps to the cell that made
+it, or runs it again.
 
-## Building and installing
+## The variables view
 
-```sh
-npm install          # dev dependencies only; the extension itself has none
-npm run compile
-npm test             # runs the suites in a real VS Code extension host
-npm run package      # produces plot-panel-<version>.vsix
-```
+After a cell finishes, the view lists what the kernel holds. Two columns, name
+and value, with a small type on the right. The line between them is a real
+divider you can drag, and it sizes itself to your longest variable name to start
+with.
 
-Install the `.vsix` with `code --install-extension plot-panel-*.vsix`, or from
-the Extensions view: `…` menu → *Install from VSIX…*.
+Rows open. A DataFrame opens into its columns, a column into its values, a list
+into its items, a dict into its keys. Values are shown the way you would want to
+read them: a frame as `[444448 rows x 24 columns]`, a list as `[5, 7, 2, …, 9,
+1]` with its length beside it. Anything a data viewer can display gets a grid
+button on hover, which hands it to Data Wrangler if you have that installed.
 
-## Recreating the Positron layout
+You can group by kind or by size, sort by name, size or recency, and filter by
+name. Variables that changed during the last run are marked, so a long Run All
+does not leave you comparing lists by eye.
 
-Positron shows Variables on top and Plots below, in the right-hand pane. The
-extension ships both views in one container, Variables above Plots. VS Code
-cannot place a view container in the secondary sidebar programmatically, but
-it is movable by hand, once, and the layout is remembered:
+## The console
 
-1. Open the secondary sidebar (`Ctrl+Alt+B` / `⌥⌘B`, or *View → Appearance →
-   Secondary Side Bar*).
-2. Drag the **Plots** icon from the activity bar into the secondary sidebar.
-   Both views come along; resize them against each other as you like.
+A Python prompt in the bottom panel, next to the terminal. Enter runs, Shift and
+Enter add a line, Tab indents, and the arrows walk back through what you typed.
+Completions come from the session itself, so `df.` lists the columns that frame
+actually has rather than a guess from static analysis.
 
-## The toolbar
+If IPython is available, magics work, including `%run` on a notebook file. You
+can open several sessions, restart one, interrupt a runaway loop, and choose
+which interpreter to start: any environment the Python extension knows about, or
+R if `Rscript` is on your path.
 
-The Plots view title bar mirrors Positron's toolbar: previous/next, save,
-copy, a **Zoom** dropdown (Fit, 50 %, 75 %, 100 %, 200 %), an **Open Plot
-In** dropdown, and the trash can that clears the history. Zoom presets and
-sizing policies are one setting — the last selection wins — kept across
-restarts. Native VS Code menus cannot show a check mark on the active level;
-the rendered figure is the source of truth.
+Running something in a console makes the variables view follow it, and clicking
+back into a notebook hands the view back.
 
-**Open Plot In** offers: an editor tab, an editor tab to the side, a floating
-window, or the **Plots Gallery** — the same history in a full-size editor tab
-or its own window. The gallery's title bar adds the **Sizing Policy** dropdown
-(Fit, Fill Width, Fill Height, Actual Size), the **dark filter** toggle (a CSS
-invert filter that makes bright figures comfortable in dark themes, applied to
-every plot surface), and the **Plot Code** dropdown.
+## Requirements
 
-**Plot Code** acts on the code captured with the current plot: *Copy Code*,
-*Reveal Code in Source* (jumps to the notebook cell, or to the `# %%` block in
-the original `.py` file for Interactive Window plots), and *Run Code Again*
-(re-executes the originating cell if the notebook is still open; failures are
-reported explicitly). Plots restored from a history recorded before this
-feature carry no code, and the actions are greyed out.
+The Jupyter extension, for notebooks and their kernels. The Python extension is
+optional and used to find your interpreters. R sessions need `Rscript`. IPython,
+if present in the environment you start, is what makes magics work.
 
-## The Variables view
+Nothing is bundled: the extension has no runtime dependencies, makes no network
+requests, and collects nothing.
 
-After each execution finishes (and on demand via the refresh button), the
-view lists the kernel's top-level variables — Python kernels only. It is
-named just "Variables" to stay distinguishable from the Jupyter extension's
-own view. The title bar offers two dropdowns: **Group Variables By** — Kind
-(the Positron categories: **DATA** for pandas/polars tables, **VALUES** for
-everything else including numpy arrays, **FUNCTIONS**, **CLASSES**) or Size
-(LARGE ≥ 100k elements / MEDIUM ≥ 1k / SMALL) — and **Sort Variables By** —
-Name, Size, or Recent (variables that appeared or changed since the previous
-refresh bubble up; changes are detected by comparing snapshots, so the first
-listing has no history). Both persist across restarts; native menus cannot
-mark the active choice. Note that `jupyter.listVariables` excludes
-functions, classes and modules kernel-side, so those sections stay empty
-with the stable data source.
+## Getting the side-by-side layout
 
-**Always two columns**: name | value, plus a small right-aligned type hint.
-Every row is a grid over the same tracks, so the boundary between the two is
-one straight line down the whole list whatever the row contains and however
-deep it sits. That line is also the handle: drag it to resize the name
-column (the position is remembered), or run *Reset Variables Column Width*
-to go back to sizing it to the longest name.
+The two views ship in one container, Variables above Plots. VS Code has no API
+to place a container in the secondary sidebar, so it takes one drag by hand:
+open the secondary sidebar (`Ctrl+Alt+B`, or View, Appearance, Secondary Side
+Bar), then drag the Plots icon from the activity bar into it. The layout is
+remembered afterwards.
 
-DataFrames show their shape (`[444448 rows x 24 columns]`), Series and
-collections an elided `[begin, …, end]` preview with the element count in
-the hint (`list (1000)`), long reprs are cut hard. The filter field narrows
-by name; section headers collapse.
+## What it cannot do
 
-Expansion keeps the two-column rule at every level, but how deep it can go
-depends on where the variables come from:
+Worth knowing before you rely on it.
 
-- **A console session** (see below) is a process the extension owns, so
-  children are read back from the live objects: a list of DataFrames opens
-  into frames, into columns, into index | value rows, with no depth limit
-  and real values. FUNCTIONS and CLASSES are reported directly.
-- **A notebook kernel** can only be described through `jupyter.listVariables`,
-  which returns truncated reprs. Tables are parsed out of them — a DataFrame
-  into its columns (non-null count and dtype from `df.info()`), a Series into
-  index | value pairs, lists/tuples/sets/arrays into position | item, dicts
-  into key | value — and nested values are recognised and expanded in turn.
-  Two hard ceilings apply, both in the repr itself: nesting collapses to
-  `...` past two levels, and every nested item is capped at 128 characters.
-  A DataFrame inside a list therefore shows its shape but usually cannot be
-  opened further; the grid button is the way through. pandas also omits the
-  `df.info()` table beyond 100 columns and wraps very wide reprs, which makes
-  those levels unexpandable.
-  FUNCTIONS and CLASSES are recovered from the source of the cells you have
-  run, with their signatures, because Jupyter's introspection excludes
-  functions, classes and modules kernel-side and takes no override.
-- **Full depth on a notebook kernel** would need the Jupyter extension's
-  Kernels API, which prompts for consent and is restricted on stable VS Code;
-  it is used on Insiders and in the test host, where expansion runs a real
-  inspection snippet on the kernel instead of parsing reprs.
+The console runs its own interpreter, so it does not see the variables in your
+notebook's kernel. Running code inside a notebook kernel and reading the result
+back is reserved by the Jupyter extension to a short list of publishers. That
+restriction is also why expansion in a notebook is limited: the view only gets
+truncated text descriptions, which stop nesting after two levels and cut every
+nested item at 128 characters. A DataFrame inside a list shows its shape but
+usually will not open further. A console session has no such ceiling, because
+the process belongs to the extension.
 
-**Open in Data Viewer**: rows holding a DataFrame, Series, ndarray, list or
-dict (including DataFrame columns) show a grid button on hover that opens
-the variable full-size via the Jupyter extension's data-viewer delegation —
-with Data Wrangler installed, that is where it opens. Requires a trusted
-workspace, the notebook open, and a live kernel; if no viewer extension is
-installed, Jupyter itself offers to find one.
+For the same reason, functions and classes in a notebook are read from the
+source of the cells you ran rather than from live objects, so what you see is
+their signature. Imported classes do not show up at all. A console lists them
+properly.
 
-## The Console
+Figures drawn by plotly, bokeh or ipywidgets never reach the notebook as an
+image, so there is nothing to capture and the pane says so instead of going
+quiet. Identical figures are stored once: re-running code that produces exactly
+the same image selects the existing entry rather than adding a copy.
 
-A **Console** tab sits in the bottom panel next to the terminal: an
-interactive Python session in the spirit of Positron's. It runs its own
-interpreter — the one the Python extension has selected for the workspace,
-otherwise `python.defaultInterpreterPath`, otherwise `python3` — so it is a
-namespace of its own, separate from any notebook kernel.
-
-That separation is the price of a session the extension fully controls, and
-it is what makes the Variables view able to show live values at any depth
-(see above): when you run something in a console, the Variables view follows
-it, and switches back when you activate a notebook again.
-
-Enter runs a line, Shift+Enter adds one; a compound statement continues on
-`...` until a blank line, as in any REPL, and the arrow keys browse history.
-Tab indents, and **Ctrl+Space** (or simply typing a name) offers completions
-taken from the live session — the interpreter knows what the objects really
-are, so `df.` lists that frame's own members. Enter or Tab accepts. After
-`%run`, `%cd` or inside quotes it completes filenames instead. Input is
-syntax-highlighted as you type and in the transcript; the colours come from
-the theme's terminal palette, since a webview cannot reach the editor's own
-token colours, so it resembles the editor without being identical to it.
-
-When the environment has **IPython**, magics work: `%run script.py`,
-`%run notebook.ipynb`, `%timeit`, `!shell` and the rest. Without it the
-console falls back to plain Python, and magics are unavailable.
-
-The title bar offers interrupt (Ctrl+C into the running statement), restart
-(fresh process, empty namespace), clear, a `+` for another session, and a
-chevron that starts one on **any interpreter the Python extension knows
-about, or on R** when `Rscript` is installed. Several sessions share the one
-tab, since a contributed view exists once per window. *Send Selection to
-Console* (Ctrl+Enter in a Python file) pushes the selection, or the current
-line.
-
-R sessions get the same treatment — variables, expansion into a data frame's
-columns, completions — through a second driver speaking the same protocol.
-They have no magics: those are an IPython feature.
-
-**Performance**: refreshing asks the kernel to describe every variable
-(that is Jupyter's own introspection script running on the kernel, with
-DataFrame summaries cached per execution). The view only refreshes when it
-is visible and only when an execution ends, coalescing bursts into a single
-fetch. If a huge namespace still makes it noticeable, set
-`plotPanel.variablesAutoRefresh` to `false` and use the refresh button.
+Variables cannot appear while a cell is still running. The introspection that
+lists them runs on the kernel, so it waits its turn behind your code.
 
 ## Settings
 
 | Setting | Default | Effect |
 | --- | --- | --- |
-| `plotPanel.autoReveal` | `true` | Reveal the Plots view (without stealing focus) when a new figure arrives. |
-| `plotPanel.followLatest` | `true` | Always select the most recent figure. When disabled, the current selection is kept while new figures accumulate. |
-| `plotPanel.historyLimit` | `50` | Maximum number of figures kept; the oldest are evicted first. |
-| `plotPanel.variablesAutoRefresh` | `true` | Refresh the Jupyter Variables view when a cell finishes executing. Disable on heavy notebooks to refresh only with the button. |
+| `plotPanel.autoReveal` | `true` | Reveal the Plots view when a figure arrives, without taking focus. |
+| `plotPanel.followLatest` | `true` | Select the newest figure. Turn off to keep your place while figures accumulate. |
+| `plotPanel.historyLimit` | `50` | How many figures to keep. The oldest go first. |
+| `plotPanel.variablesAutoRefresh` | `true` | Refresh the variables when a cell finishes. Turn off on heavy notebooks and use the refresh button. |
 
-### A note on `jupyter.generateSVGPlots`
+With `jupyter.generateSVGPlots` enabled, kernels also emit SVG and the pane
+prefers it: crisper when zoomed, usually smaller on disk.
 
-By default, matplotlib emits PNG. With the Jupyter extension setting
-`jupyter.generateSVGPlots` enabled, kernels also emit SVG, and Plot Panel then
-prefers the vector representation — crisper zooming, usually smaller files.
+If your figures come out with a dark background, that is
+`jupyter.themeMatplotlibPlots`, a Jupyter setting that repaints matplotlib to
+match your theme. Set it to `false` for white figures.
 
 ## Commands
 
-| Command | Where |
-| --- | --- |
-| `Plot Panel: Previous Plot` / `Next Plot` | title bar of the view, or ← / → when the view is focused |
-| `Plot Panel: Save Plot As…` | title bar; writes the figure byte-for-byte in its original format |
-| `Plot Panel: Copy Plot` | title bar; copies the current figure to the clipboard as PNG |
-| `Plot Panel: Zoom to Fit / 50% / 75% / 100% / 200%` | Zoom dropdown on every plot surface |
-| `Plot Panel: Size Plot to Fill Width / Fill Height / Actual Size` | Sizing Policy dropdown on the editor panels |
-| `Plot Panel: Toggle Dark Filter on Plots` | editor panels' title bars, view `…` menu |
-| `Plot Panel: Open Plot in Editor Tab / to the Side / New Window` | Open Plot In dropdown |
-| `Plot Panel: Open Plots Gallery in Editor Tab / New Window` | Open Plot In dropdown |
-| `Plot Panel: Copy / Reveal / Run Plot Code` | Plot Code dropdown on the editor panels |
-| `Plot Panel: Export All Plots…` | title-bar `…` menu; writes the whole history to a chosen folder as numbered files in their original formats |
-| `Plot Panel: Clear Plot History` | title bar (trash can) |
-| `Plot Panel: Refresh Variables` | title bar of the Variables view |
-| `Plot Panel: Group Variables by Kind / Size` | Group Variables By dropdown |
-| `Plot Panel: Sort Variables by Name / Size / Recently Changed` | Sort Variables By dropdown |
-| `Plot Panel: Reset Variables Column Width` | Variables view `…` menu |
-| `Plot Panel: Clear Variables` | title bar of the Variables view |
-| `Plot Panel: New / Clear / Restart / Interrupt / Close Console` | title bar of the Console panel |
-| `Plot Panel: Select Console Interpreter…` | Console `…` menu; opens a session with the new choice |
-| `Plot Panel: Send Selection to Console` | editor context menu, or Ctrl+Enter in a Python file |
-
-On a pinned single-plot tab, save/copy/code act on that plot; everywhere else
-they act on the gallery selection.
-
-## Known limitations
-
-- **Interactive widget outputs have no static image.** Figures rendered through
-  plotly, bokeh, ipywidgets or similar widget front-ends never reach the
-  notebook as an image; Plot Panel shows an explicit message instead of
-  capturing them. Use a static backend (e.g. matplotlib, or plotly's
-  `fig.show(renderer="png")`) if you want them in the history.
-- **Identical figures are deduplicated.** The history is keyed by image
-  content: re-running code that produces a byte-identical figure selects the
-  existing entry instead of adding a duplicate — and keeps the first
-  capture's code metadata, since only the content identifies an entry.
-- **The views cannot move themselves to the secondary sidebar.** The VS Code
-  API has no way to place a view there; the one-time drag described above is
-  required.
-- **Variables are Python-only, and notebook expansion is limited by the
-  reprs.** Other kernels show nothing. For a notebook the depth is bounded by
-  what `jupyter.listVariables` prints (two levels of nesting, 128 characters
-  per nested item), and functions and classes come from the cell source
-  rather than from live objects. A console session has neither limit.
-- **The Console does not share a notebook's variables.** Running code in a
-  notebook kernel and reading its output back is reserved to the Jupyter
-  Kernels API, so the console is a separate interpreter. Use *Send Selection
-  to Console* to replay the code you want in it, or the Data Viewer button to
-  inspect notebook data.
-- **The Data Viewer button is notebook-only.** Jupyter's delegation resolves
-  the expression against a notebook's kernel; console rows expand in place
-  instead.
-- **Figures produced before the extension host finished starting** (very early
-  in a session) are not captured; capture is event-based, not retroactive over
-  pre-existing outputs.
-- **Copying focuses the Plots view.** The stable extension API only offers a
-  text clipboard, so the image is written by the view itself through the
-  browser clipboard, which requires a focused document. If the environment
-  denies the clipboard permission, the command reports an explicit error
-  rather than failing silently.
+Everything is on the title bars, and all of it is in the command palette under
+`Plot Panel`. The ones worth a keybinding are Send Selection to Console
+(`Ctrl+Enter` in a Python file), Previous and Next Plot (left and right arrows
+when the pane has focus), and Refresh Variables.
 
 ## Trademarks
 
-This extension is an independent project. It is not affiliated with, endorsed
-by, or sponsored by Posit Software, PBC or Microsoft. Positron and RStudio are
-trademarks of Posit Software, PBC; they are named here only to describe the
-layout this extension reproduces. No Positron source code was consulted or
-used: the implementation is original, and the behaviours it matches were
-derived from public behaviour and from the VS Code and Jupyter extension APIs.
+An independent project, not affiliated with, endorsed by or sponsored by Posit
+Software, PBC or Microsoft. Positron and RStudio are trademarks of Posit
+Software, PBC, named here only to describe the layout this extension reproduces.
+No Positron source code was consulted or used: the implementation is original,
+and the behaviour it matches was derived from public behaviour and from the
+VS Code and Jupyter extension APIs.
