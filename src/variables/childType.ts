@@ -20,9 +20,12 @@ import {
   type DataFrameGrid,
   parseCollectionRepr,
   parseDataFrameRepr,
+  parseObjectRepr,
   parseSeriesRepr,
+  parseWrappedColumns,
   splitDictItem,
 } from './reprParse';
+import { parseDataFrameSummary } from './summary';
 
 export type InferredKind =
   | 'DataFrame'
@@ -32,6 +35,7 @@ export type InferredKind =
   | 'set'
   | 'dict'
   | 'ndarray'
+  | 'object'
   | 'scalar';
 
 /** The pandas shape tail survives even a heavily truncated inner repr. */
@@ -45,6 +49,7 @@ const QUALIFIED: Readonly<Record<InferredKind, string>> = {
   tuple: 'tuple',
   set: 'set',
   dict: 'dict',
+  object: 'object',
   scalar: '',
 };
 
@@ -120,6 +125,9 @@ export function inferChildType(text: string): InferredKind {
   if (trimmed.includes('\n') && hasGrid(trimmed)) {
     return 'DataFrame';
   }
+  if (parseObjectRepr(trimmed) !== undefined) {
+    return 'object';
+  }
   return 'scalar';
 }
 
@@ -136,7 +144,11 @@ export function canExpandRepr(type: string, raw: string, summary: string | undef
   }
   switch (short) {
     case 'DataFrame':
-      return summary !== undefined || gridOf(raw) !== undefined;
+      return (
+        parseDataFrameSummary(summary ?? '') !== undefined ||
+        gridOf(raw) !== undefined ||
+        parseWrappedColumns(raw) !== undefined
+      );
     case 'Series': {
       const parsed = parseSeriesRepr(raw);
       return parsed !== undefined && parsed.pairs.length > 0;
@@ -151,6 +163,8 @@ export function canExpandRepr(type: string, raw: string, summary: string | undef
       return parsed !== undefined && parsed.items.length > 0;
     }
     default:
-      return false;
+      // Any other object still has a table in it when its repr names fields,
+      // which is how matplotlib Axes and most library objects print.
+      return parseObjectRepr(raw) !== undefined;
   }
 }

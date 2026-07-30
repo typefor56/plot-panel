@@ -21,7 +21,9 @@ import { canExpandRepr, gridOf, inferChildType, qualifiedType } from './childTyp
 import {
   type DataFrameGrid,
   parseCollectionRepr,
+  parseObjectRepr,
   parseSeriesRepr,
+  parseWrappedColumns,
   splitDictItem,
 } from './reprParse';
 import { parseDataFrameSummary } from './summary';
@@ -37,6 +39,8 @@ export interface ExpandNode {
 
 export interface PreviewRow {
   readonly name: string;
+  /** Set on top-level rows whose value moved in the latest listing. */
+  readonly changed?: boolean;
   readonly value: string;
   readonly typeHint: string;
   readonly expandable: boolean;
@@ -128,6 +132,8 @@ export class ExpandRegistry {
       rows = this.dictChildren(nodeId, node);
     } else if (INDEXED_TYPES.has(short)) {
       rows = this.itemChildren(nodeId, node, short);
+    } else {
+      rows = this.objectChildren(nodeId, node);
     }
     if (rows !== undefined) {
       this.cache.set(nodeId, rows);
@@ -176,7 +182,12 @@ export class ExpandRegistry {
   private dataFrameChildren(nodeId: string, node: ExpandNode): readonly PreviewRow[] | undefined {
     const columns = node.summary !== undefined ? parseDataFrameSummary(node.summary) : undefined;
     const grid = gridOf(node.raw);
-    const names = columns?.map((column) => column.name) ?? grid?.columns;
+    // A frame too wide to print in one block has neither a df.info() column
+    // table (pandas stops at 100 columns) nor a placeable grid, but its
+    // wrapped header still names the columns — enough to list them and open
+    // each in the data viewer.
+    const names =
+      columns?.map((column) => column.name) ?? grid?.columns ?? parseWrappedColumns(node.raw);
     if (names === undefined) {
       return undefined;
     }
@@ -213,6 +224,20 @@ export class ExpandRegistry {
       });
     });
     return rows.length > 0 ? rows : undefined;
+  }
+
+  /**
+   * Objects that name their fields in their repr — matplotlib Axes and most
+   * library objects — are already a two-column table.
+   */
+  private objectChildren(nodeId: string, node: ExpandNode): readonly PreviewRow[] | undefined {
+    const parsed = parseObjectRepr(node.raw);
+    if (parsed === undefined) {
+      return undefined;
+    }
+    return parsed.fields.map(([key, value], position) =>
+      this.nestedRow(nodeId, position, key, value, ''),
+    );
   }
 
   private seriesChildren(nodeId: string, node: ExpandNode): readonly PreviewRow[] | undefined {

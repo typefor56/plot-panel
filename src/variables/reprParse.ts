@@ -264,6 +264,13 @@ function splitTopLevel(content: string, separator: string): string[] {
       depth++;
     } else if (char === ']' || char === ')' || char === '}') {
       depth--;
+    } else if (char === '<' && /[A-Za-z_]/.test(content[i + 1] ?? '')) {
+      // An object repr, "<Axes: title=…, xlabel=…>", is one item: its own
+      // commas must not split it. Only a "<" introducing a name counts, so a
+      // less-than inside an expression is left alone.
+      depth++;
+    } else if (char === '>' && depth > 0) {
+      depth--;
     } else if (depth === 0 && char === separator) {
       parts.push(content.slice(start, i));
       start = i + 1;
@@ -331,6 +338,93 @@ export function parseCollectionRepr(raw: string, type: string): CollectionItems 
     items.push(item);
   }
   return { items, gapAt };
+}
+
+export interface ObjectRepr {
+  readonly className: string;
+  readonly fields: readonly (readonly [string, string])[];
+}
+
+/**
+ * Angle-bracket object reprs that carry named fields, which is how most
+ * library objects describe themselves:
+ *   <Axes: title={'center': 'Histogramme'}, xlabel='Tailles'>
+ * Those fields are exactly the two-column table the view wants. Objects with
+ * no `key=value` at all (<Axes: >, <module 'os'>) yield undefined: there is
+ * nothing to tabulate.
+ */
+export function parseObjectRepr(raw: string): ObjectRepr | undefined {
+  const text = raw.trim();
+  if (!text.startsWith('<') || !text.endsWith('>')) {
+    return undefined;
+  }
+  const inner = text.slice(1, -1);
+  const colon = inner.indexOf(':');
+  const className = (colon === -1 ? inner : inner.slice(0, colon)).trim().split(/\s+/)[0] ?? '';
+  const body = colon === -1 ? '' : inner.slice(colon + 1);
+  const fields: [string, string][] = [];
+  for (const part of splitTopLevel(body, ',')) {
+    const item = part.trim();
+    if (item.length === 0) {
+      continue;
+    }
+    const equals = splitTopLevel(item, '=');
+    const key = equals[0];
+    if (equals.length < 2 || key === undefined || key.trim().length === 0) {
+      continue;
+    }
+    fields.push([key.trim(), equals.slice(1).join('=').trim()]);
+  }
+  return fields.length > 0 ? { className, fields } : undefined;
+}
+
+/**
+ * Column names of a frame too wide to print in one block.
+ *
+ * pandas then wraps the repr into blocks, each line but the last ending in a
+ * backslash, and `df.info()` stops listing columns past 100 — so neither of
+ * the usual sources works. The names are all still there, spread over the
+ * blocks' header lines, which is enough to list the columns even though the
+ * cells cannot be placed.
+ */
+export function parseWrappedColumns(raw: string): readonly string[] | undefined {
+  if (!raw.split('\n').some((line) => line.trimEnd().endsWith('\\'))) {
+    return undefined;
+  }
+  const names: string[] = [];
+  const seen = new Set<string>();
+  let expectHeader = true;
+  let header: string | undefined;
+  for (const line of raw.split('\n')) {
+    const trimmed = line.trimEnd();
+    if (trimmed.length === 0) {
+      expectHeader = true;
+      header = undefined;
+      continue;
+    }
+    if (ROWS_X_COLUMNS_LINE.test(trimmed.trim())) {
+      continue;
+    }
+    if (expectHeader) {
+      header = trimmed.replace(/\\$/, '').trimEnd();
+      expectHeader = false;
+      continue;
+    }
+    if (header === undefined) {
+      continue;
+    }
+    // First data row of the block: its token boundaries name the columns.
+    const ends = tokenEnds(trimmed.replace(/\\$/, '').trimEnd());
+    const block = headerByPosition(header, ends) ?? header.split(TWO_SPACES).map((t) => t.trim());
+    for (const name of block) {
+      if (name.length > 0 && name !== '...' && !seen.has(name)) {
+        seen.add(name);
+        names.push(name);
+      }
+    }
+    header = undefined;
+  }
+  return names.length > 0 ? names : undefined;
 }
 
 /** "key: value" split at the first top-level colon (dict item from repr). */

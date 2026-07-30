@@ -379,8 +379,12 @@
   input.addEventListener('input', () => {
     resize();
     const before = input.value.slice(0, input.selectionEnd);
-    // Only suggest while typing a name, an attribute or a magic.
-    if (/[A-Za-z0-9_.%]$/.test(before)) {
+    // Suggest once three characters of a name have been typed — earlier than
+    // that the list is mostly noise. A dot, a path or Ctrl+Space still asks
+    // immediately.
+    const token = /[A-Za-z0-9_]*$/.exec(before)[0];
+    const wants = /[.%/'"]$/.test(before) || token.length >= 3;
+    if (wants && /[A-Za-z0-9_.%/'"]$/.test(before)) {
       scheduleCompletions();
     } else {
       closeCompletions();

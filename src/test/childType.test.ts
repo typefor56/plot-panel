@@ -60,8 +60,16 @@ suite('Expandability probe', () => {
     assert.strictEqual(canExpandRepr('pandas.DataFrame', DF_SMALL, undefined), true);
   });
 
-  test('a DataFrame is expandable from its df.info summary alone', () => {
-    assert.strictEqual(canExpandRepr('pandas.DataFrame', '', 'anything'), true);
+  test('a DataFrame is expandable from its df.info column table alone', () => {
+    const summary = [
+      'Data columns (total 1 columns):',
+      ' #   Column  Non-Null Count  Dtype',
+      ' 0   a       3 non-null      int64',
+    ].join('\n');
+    assert.strictEqual(canExpandRepr('pandas.DataFrame', '', summary), true);
+    // A summary without a column table (pandas omits it past 100 columns)
+    // promises nothing on its own.
+    assert.strictEqual(canExpandRepr('pandas.DataFrame', '', 'Columns: 108 entries'), false);
   });
 
   test('rejects scalars, empty reprs and unknown types', () => {

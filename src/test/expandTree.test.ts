@@ -110,6 +110,69 @@ suite('expansion: shapes taken from a real notebook', () => {
   });
 });
 
+suite('expansion: objects and very wide frames', () => {
+  const AX =
+    "<Axes: title={'center': 'Histogramme + KDE pour un bin = 50'}, xlabel='Tailles', ylabel='Nombre'>";
+
+  test('an object that names its fields becomes a table', () => {
+    const { tree, expandable } = registry('matplotlib.axes._axes.Axes', AX);
+    assert.strictEqual(expandable, true);
+    assert.deepStrictEqual(names(tree.childrenOf('root')), ['title', 'xlabel', 'ylabel']);
+  });
+
+  test('an array of such objects expands through to their fields', () => {
+    const { tree } = registry('numpy.ndarray', `array([${AX}, ${AX}], dtype=object)`);
+    const axes = tree.childrenOf('root') ?? [];
+    assert.strictEqual(axes.length, 2);
+    assert.strictEqual(axes[0]?.expandable, true);
+    assert.deepStrictEqual(names(tree.childrenOf(axes[1]?.nodeId ?? '')), [
+      'title',
+      'xlabel',
+      'ylabel',
+    ]);
+  });
+
+  test('an object with no fields is a leaf, not a broken chevron', () => {
+    const { expandable } = registry('matplotlib.axes._axes.Axes', '<Axes: >');
+    assert.strictEqual(expandable, false);
+  });
+
+  test('a frame past the display width still lists its columns', () => {
+    // 108 columns: pandas wraps the repr and drops df.info()'s column table,
+    // which is what left this frame reporting "could not inspect".
+    const wide = [
+      '      alpha  beta  gamma  \\',
+      '0         1     2      3   ',
+      '1         4     5      6   ',
+      '',
+      '   delta  epsilon',
+      '0      7        8',
+      '1      9       10',
+      '',
+      '[2 rows x 5 columns]',
+    ].join('\n');
+    const summaryWithoutColumns = [
+      "<class 'pandas.core.frame.DataFrame'>",
+      'RangeIndex: 2 entries, 0 to 1',
+      'Columns: 108 entries, alpha to epsilon',
+      'dtypes: int64(108)',
+    ].join('\n');
+    const { tree, expandable } = registry(
+      'pandas.core.frame.DataFrame',
+      wide,
+      summaryWithoutColumns,
+    );
+    assert.strictEqual(expandable, true);
+    assert.deepStrictEqual(names(tree.childrenOf('root')), [
+      'alpha',
+      'beta',
+      'gamma',
+      'delta',
+      'epsilon',
+    ]);
+  });
+});
+
 suite('expansion: pandas DataFrame', () => {
   test('columns come from df.info, each opening into its own table', () => {
     const { tree, expandable } = registry(
@@ -163,7 +226,7 @@ suite('expansion: containers, recursively', () => {
 
     const frames = tree.childrenOf('root') ?? [];
     assert.strictEqual(frames.length, 2);
-    assert.strictEqual(frames[0]?.typeHint, 'pandas.DataFrame');
+    assert.strictEqual(frames[0]?.typeHint, 'pd.DataFrame');
     assert.strictEqual(frames[0]?.expression, 'root[0]');
     assert.strictEqual(frames[0]?.expandable, true);
 

@@ -279,3 +279,10 @@ body.busy #list {
   text-align: center;
   color: var(--vscode-descriptionForeground);
 }
+
+/* A value that moved in the latest listing, so a long run does not leave the
+   eye hunting for what actually changed. */
+.var-row.just-changed .var-name {
+  color: var(--vscode-gitDecoration-modifiedResourceForeground, var(--vscode-charts-blue));
+  font-weight: 600;
+}

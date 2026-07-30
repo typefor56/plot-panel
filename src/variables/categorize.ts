@@ -37,8 +37,16 @@ const DATA_TYPES = new Set(['DataFrame', 'Series', 'Index']);
  */
 const R_DATA_TYPES = new Set(['data.frame', 'tbl_df', 'data.table', 'matrix', 'array']);
 
-/** Types whose hint keeps the root package ("pandas.DataFrame", "numpy.ndarray"). */
+/** Types whose hint keeps the root package, abbreviated as the ecosystem
+ *  writes it ("np.ndarray"): the hint column is narrow and the element count
+ *  beside it matters more than the full package name. */
 const PREFIXED_TYPES = new Set(['DataFrame', 'Series', 'Index', 'ndarray']);
+
+const PACKAGE_ALIAS: Readonly<Record<string, string>> = {
+  numpy: 'np',
+  pandas: 'pd',
+  polars: 'pl',
+};
 
 const FUNCTION_TYPES = new Set([
   'function',
@@ -88,7 +96,8 @@ export function typeHint(type: string, indexedChildrenCount: number): string {
   }
   const short = lastSegment(type);
   const root = type.includes('.') ? type.slice(0, type.indexOf('.')) : '';
-  const name = PREFIXED_TYPES.has(short) && root.length > 0 ? `${root}.${short}` : short;
+  const alias = PACKAGE_ALIAS[root] ?? root;
+  const name = PREFIXED_TYPES.has(short) && alias.length > 0 ? `${alias}.${short}` : short;
   return indexedChildrenCount > 0 ? `${name} (${indexedChildrenCount})` : name;
 }
 

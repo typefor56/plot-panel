@@ -171,6 +171,9 @@
     line.setAttribute('role', 'treeitem');
     cells.name.textContent = String(row.name);
     cells.name.title = String(row.name);
+    if (row.changed === true) {
+      line.classList.add('just-changed');
+    }
     cells.value.textContent = row.value;
     cells.value.title = row.value;
 
@@ -316,11 +319,14 @@
       const section = makeSection(stateSection.label);
       sections.push(section);
       list.appendChild(section.root);
+      const measurable = stateSection.label !== 'FUNCTIONS' && stateSection.label !== 'CLASSES';
       for (const row of stateSection.rows) {
         const item = makeRow(row, 0);
         item.dataset.name = String(row.name).toLowerCase();
         section.body.appendChild(item);
-        topLevelNames.push(String(row.name));
+        if (measurable) {
+          topLevelNames.push(String(row.name));
+        }
         totalRows++;
       }
     }

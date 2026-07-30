@@ -21,7 +21,7 @@ suite('variables: categorization', () => {
   });
 
   test('numpy arrays are VALUES, like in Positron', () => {
-    assert.strictEqual(categorize('numpy.ndarray'), 'values');
+    assert.strictEqual(categorize('np.ndarray'), 'values');
   });
 
   test('callables are FUNCTIONS', () => {
@@ -63,9 +63,9 @@ suite('variables: categorization', () => {
   test('type hints shorten qualified names and count indexed children', () => {
     assert.strictEqual(typeHint('float', 0), 'float');
     assert.strictEqual(typeHint('list', 12), 'list (12)');
-    assert.strictEqual(typeHint('pandas.core.frame.DataFrame', 0), 'pandas.DataFrame');
-    assert.strictEqual(typeHint('polars.dataframe.frame.DataFrame', 0), 'polars.DataFrame');
-    assert.strictEqual(typeHint('numpy.ndarray', 0), 'numpy.ndarray');
+    assert.strictEqual(typeHint('pandas.core.frame.DataFrame', 0), 'pd.DataFrame');
+    assert.strictEqual(typeHint('polars.dataframe.frame.DataFrame', 0), 'pl.DataFrame');
+    assert.strictEqual(typeHint('np.ndarray', 0), 'np.ndarray');
     assert.strictEqual(typeHint('scipy.stats._kde.gaussian_kde', 0), 'gaussian_kde');
     assert.strictEqual(typeHint('numpy.int64', 245), 'int64 (245)');
   });
@@ -88,7 +88,7 @@ suite('variables: categorization', () => {
     assert.ok(largeSeries.includes('…'), 'gap is visible');
     assert.ok(largeSeries.endsWith('99999]'), largeSeries);
     // Collections keep their own brackets and elide long contents.
-    assert.strictEqual(formatVariableValue('numpy.ndarray', fx.ND_1D), '[5, 7, 2, 3, 3, 1, 23, 2, 11]');
+    assert.strictEqual(formatVariableValue('np.ndarray', fx.ND_1D), '[5, 7, 2, 3, 3, 1, 23, 2, 11]');
     const bigList = formatVariableValue('list', fx.LIST_1000);
     assert.ok(bigList.startsWith('[0, 1, 2,'), bigList);
     assert.ok(bigList.endsWith('…]'), 'SafeRepr tail cut stays visible');
@@ -102,8 +102,8 @@ suite('variables: categorization', () => {
     assert.strictEqual(variableSize('pandas.core.frame.DataFrame', fx.DF_LARGE, 0), 1_400_000);
     assert.strictEqual(variableSize('pandas.core.series.Series', fx.S_INT_LARGE, 0), 100_000);
     assert.strictEqual(variableSize('list', fx.LIST_1000, 1000), 1000, 'Jupyter count wins');
-    assert.strictEqual(variableSize('numpy.ndarray', fx.ND_1D, 0), 9, 'complete repr counted');
-    assert.strictEqual(variableSize('numpy.ndarray', fx.ND_BIG, 0), 0, 'truncated repr unknown');
+    assert.strictEqual(variableSize('np.ndarray', fx.ND_1D, 0), 9, 'complete repr counted');
+    assert.strictEqual(variableSize('np.ndarray', fx.ND_BIG, 0), 0, 'truncated repr unknown');
     assert.strictEqual(variableSize('str', "'./data/calls/'", 0), 13);
     assert.strictEqual(variableSize('int', '50', 0), 0);
   });
@@ -118,7 +118,7 @@ suite('variables: categorization', () => {
   test('dataViewerType maps to the viewers’ exact dataTypes members', () => {
     assert.strictEqual(dataViewerType('pandas.core.frame.DataFrame'), 'DataFrame');
     assert.strictEqual(dataViewerType('pandas.core.series.Series'), 'Series');
-    assert.strictEqual(dataViewerType('numpy.ndarray'), 'ndarray');
+    assert.strictEqual(dataViewerType('np.ndarray'), 'ndarray');
     assert.strictEqual(dataViewerType('list'), 'list');
     assert.strictEqual(dataViewerType('dict'), 'dict');
     assert.strictEqual(dataViewerType('str'), undefined);

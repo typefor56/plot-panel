@@ -108,6 +108,13 @@ interface DataViewerRequest {
 }
 
 const REFRESH_DEBOUNCE_MS = 500;
+/**
+ * How long a listing stays trusted. Flicking between a notebook and a
+ * console redraws from the snapshot without troubling the kernel again;
+ * anything that actually changes a namespace (an execution ending) refreshes
+ * regardless of this.
+ */
+const FRESH_MS = 3000;
 
 function childRow(child: ChildVariable): VariableRow {
   return {
@@ -218,6 +225,10 @@ export class VariablesViewProvider implements vscode.WebviewViewProvider, vscode
     string,
     { decorated: readonly DecoratedVariable[]; targetName: string; tree: ExpandRegistry }
   >();
+  /** When each source was last listed, for the freshness check. */
+  private readonly fetchedAt = new Map<string, number>();
+  /** Start of the listing being decorated, to spot what moved during it. */
+  private lastFetchAt = 0;
   /** Per-notebook change tracking for the Recent sort (session-scoped). */
   private readonly recency = new Map<string, Map<string, { signature: string; changedAt: number }>>();
   private readonly cancellation = new vscode.CancellationTokenSource();
@@ -248,6 +259,7 @@ export class VariablesViewProvider implements vscode.WebviewViewProvider, vscode
           (change) => change.executionSummary?.timing !== undefined,
         );
         if (finished) {
+          this.fetchedAt.delete(event.notebook.uri.toString());
           this.target = { kind: 'notebook', notebook: event.notebook };
           if (this.autoRefresh()) {
             this.scheduleRefresh(REFRESH_DEBOUNCE_MS);
@@ -263,6 +275,19 @@ export class VariablesViewProvider implements vscode.WebviewViewProvider, vscode
         const notebook = this.notebookOf(editor.document);
         if (notebook !== undefined && !this.targets(notebook)) {
           this.switchTo({ kind: 'notebook', notebook });
+        }
+      }),
+      // Clicking a markdown cell, or anywhere that only moves the notebook's
+      // selection, changes no text editor — but it is still the user saying
+      // which notebook they are working in.
+      vscode.window.onDidChangeNotebookEditorSelection((event) => {
+        if (!this.targets(event.notebookEditor.notebook)) {
+          this.switchTo({ kind: 'notebook', notebook: event.notebookEditor.notebook });
+        }
+      }),
+      vscode.window.onDidChangeNotebookEditorVisibleRanges((event) => {
+        if (!this.targets(event.notebookEditor.notebook)) {
+          this.switchTo({ kind: 'notebook', notebook: event.notebookEditor.notebook });
         }
       }),
       vscode.workspace.onDidCloseNotebookDocument((notebook) => {
@@ -303,6 +328,9 @@ export class VariablesViewProvider implements vscode.WebviewViewProvider, vscode
       this.targetName = snapshot.targetName;
       this.tree = snapshot.tree;
       this.renderFromCache();
+      if (this.isFresh(target)) {
+        return;
+      }
     }
     this.scheduleRefresh(0);
   }
@@ -413,7 +441,14 @@ export class VariablesViewProvider implements vscode.WebviewViewProvider, vscode
     }, delay);
   }
 
-  /** Single fetch in flight; a refresh requested meanwhile runs once after. */
+  /**
+   * Single fetch in flight; a refresh asked for meanwhile runs once after.
+   *
+   * Only the newest request survives. Switching quickly between sources used
+   * to queue one slow kernel round-trip per click — the introspection script
+   * runs *on* the kernel, so each can take seconds — and the view showed the
+   * result of the last one to finish, long after the click.
+   */
   private async doRefresh(): Promise<void> {
     if (this.inFlight) {
       this.queued = true;
@@ -429,6 +464,12 @@ export class VariablesViewProvider implements vscode.WebviewViewProvider, vscode
         void this.doRefresh();
       }
     }
+  }
+
+  /** Whether this source was listed recently enough to trust the snapshot. */
+  private isFresh(target: VariablesTarget): boolean {
+    const at = this.fetchedAt.get(targetKey(target));
+    return at !== undefined && Date.now() - at < FRESH_MS;
   }
 
   private async fetchAndRender(): Promise<void> {
@@ -460,6 +501,7 @@ export class VariablesViewProvider implements vscode.WebviewViewProvider, vscode
       return;
     }
     this.tree = new ExpandRegistry();
+    this.lastFetchAt = Date.now();
     const changed = this.trackRecency(targetKey(target), listed);
     this.decorated = listed.map((variable) =>
       this.decorate(variable, changed.get(variable.name) ?? 0),
@@ -470,6 +512,7 @@ export class VariablesViewProvider implements vscode.WebviewViewProvider, vscode
       targetName: this.targetName,
       tree: this.tree,
     });
+    this.fetchedAt.set(targetKey(target), Date.now());
     this.renderFromCache();
   }
 
@@ -570,6 +613,9 @@ export class VariablesViewProvider implements vscode.WebviewViewProvider, vscode
       changedAt,
       row: {
         name: variable.name,
+        // A value that moved in this listing is worth pointing out, which is
+        // what the Recent sort already tracks.
+        ...(changedAt > 0 && changedAt >= this.lastFetchAt ? { changed: true } : {}),
         value: truncate(formatVariableValue(variable.type, variable.value)),
         typeHint: typeHint(variable.type, count),
         expandable,
