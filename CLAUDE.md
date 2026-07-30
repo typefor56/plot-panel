@@ -35,6 +35,14 @@ avec un périmètre Python uniquement.
 | `src/commands.ts` | Enregistrement de toutes les commandes ; sur un panneau épinglé actif, save/copy/code agissent sur le pin |
 | `src/persistence.ts` | `PlotStore` : fichiers image adressés par contenu + vignettes `<id>.thumb.png` + `index.json` dans `globalStorageUri`, écritures sérialisées et idempotentes |
 | `src/thumbnails.ts` | `ThumbnailCache` : vignettes PNG réduites partagées entre vue et persistance |
+| `src/console/session.ts` | `ConsoleSession` : process Python enfant pilotant `media/console_driver.py`, protocole JSON ligne à ligne, scrollback possédé côté hôte, `execute`/`interrupt`(SIGINT)/`restart`/`listVariables`/`listChildren` |
+| `src/console/sessionManager.ts` | Sessions vivantes + session active (patron émetteur maison) ; une vue contribuée n'existe qu'une fois par fenêtre, d'où les onglets internes |
+| `src/console/interpreter.ts` | Résolution de l'interpréteur : API extension Python (interface écrite à la main) → `python.defaultInterpreterPath` → `python3` |
+| `src/console/consoleView.ts` | `WebviewViewProvider` de la Console dans le panneau du bas |
+| `media/console_driver.py` | Driver REPL stdlib pure, embarqué dans le `.vsix` ; `codeop.compile_command` pour la continuation, `vars`/`children` au format JSON de `inspect.ts` |
+| `media/console.js` / `console.css` | Côté webview console : onglets de sessions, scrollback, saisie avec historique |
+| `src/variables/childType.ts` | Inférence du type d'une valeur imbriquée depuis son repr + sonde d'expansibilité. Pur |
+| `src/variables/pythonDefs.ts` | Extraction des `def`/`class` de premier niveau (signatures multi-lignes, docstrings ignorées). Pur |
 | `src/variables/categorize.ts` | Catégorisation DATA/VALUES/FUNCTIONS/CLASSES, hints, `formatVariableValue` (forme/aperçus élidés), `variableSize`/`variableCount`, `organizeVariables` (groupement kind/size × tri name/size/recent), `dataViewerType`. Pur, sans `vscode` |
 | `src/variables/reprParse.ts` | Parseurs des reprs SafeRepr : paires d'une Series, grille d'un DataFrame, items de collections, `elideItems`. Pur, testé sur fixtures pandas réelles (`src/test/reprFixtures.ts`, généré) |
 | `src/variables/summary.ts` | Parseur du `summary` (= `df.info()`) attaché aux DataFrames. Pur |
@@ -196,6 +204,53 @@ Toute violation est un échec du projet, pas un compromis acceptable :
 - **« New window » = panneau créé focalisé puis
   `workbench.action.moveEditorToNewWindow`** (la commande agit sur l'éditeur
   actif).
+
+- **Plafonds de SafeRepr mesurés (probes debugpy + pandas 2.2.3, 2026-07-30)**
+  — le fait qui justifie toute l'architecture : les valeurs de
+  `jupyter.listVariables` s'effondrent en `...` **au-delà de 2 niveaux**
+  d'imbrication (`{'a': {'b': {...}}}`, `[[[...]]]`) et **chaque élément
+  imbriqué est plafonné à 128 caractères** (`maxstring_inner`/
+  `maxother_inner`). Une liste de DataFrames ne garde donc que la queue
+  `[N rows x M columns]` de chacun. **La vraie récursion via le kernel d'un
+  notebook est impossible sur stable** ; ne pas retenter, c'est mesuré.
+- **Expansion notebook = registre de nœuds**, plus une `Map` précalculée à
+  2 niveaux : `expand(nodeId)` parse le repr du nœud **au clic** et enregistre
+  chaque enfant comme nœud à son tour. Les `nodeId` sont **synthétiques**
+  (`<parent>#<index>`) : un label de Series ou un élément de set est
+  dépliable sans être adressable. L'`expression` voyage à part et reste vide
+  quand indexer serait une supposition — ce qui supprime aussi le bouton
+  Data Viewer qui ouvrirait la mauvaise donnée. Une colonne de DataFrame est
+  **re-synthétisée en repr de Series** pour que « ouvrir une colonne » et
+  « ouvrir une Series » partagent un seul chemin.
+- **FUNCTIONS/CLASSES d'un notebook viennent du source des cellules
+  exécutées** : `typesToExclude = ["module", "function", "method", "class",
+  "type"]` est **codé en dur** dans le helper Python de Jupyter
+  (`vscodeGetVariablesForProvider.py`) et n'accepte aucun override — vérifié
+  par lecture du fichier installé. La valeur affichée est donc la signature,
+  pas un objet vivant, et on l'assume plutôt que de faire semblant. Marqueurs
+  synthétiques `function` / `class` (jamais de vrais noms de type Python).
+- **La Console lance notre propre interpréteur** (décision utilisateur,
+  session 2026-07-30) : aucun verrou de publisher, donc récursion illimitée,
+  valeurs vives, tailles exactes et vraies FUNCTIONS/CLASSES dans la vue
+  Variables. Contrepartie assumée et documentée : elle ne voit pas les
+  variables du notebook. La vue Variables **cible** soit un notebook soit une
+  session Console, et exécuter dans une console la lui fait suivre.
+- **Driver plutôt que `python -i`** (comportement vérifié sur cette machine) :
+  avec stdin en pipe, les invites partent sur **stderr sans retour à la
+  ligne** (`>>> >>> `) et la valeur d'une expression est indiscernable de ce
+  que le code a imprimé. Le protocole encadré donne un id d'exécution, sépare
+  résultat et sortie, et rend la continuation explicite
+  (`codeop.compile_command` : `None` = incomplet, objet code = complet,
+  `SyntaxError` = invalide — les **trois** branches comptent).
+- **Une vue contribuée n'existe qu'une fois par fenêtre** (pas d'API stable
+  pour une seconde instance) : les multiples sessions vivent donc dans l'unique
+  webview derrière une barre d'onglets, comme Positron.
+- **Alignement des colonnes = pistes de grille partagées** : chaque ligne est
+  une `grid` sur `var(--name-width)`, l'indentation est **dans la première
+  cellule** et jamais sur la ligne. Le séparateur est un **unique élément
+  positionné en absolu** couvrant la liste : la verticale est droite par
+  construction, et c'est aussi la poignée de redimensionnement (largeur
+  persistée en `globalState`, défaut = nom le plus long mesuré hors flux).
 
 ## Conventions
 

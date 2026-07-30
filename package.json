@@ -1,7 +1,7 @@
 {
   "name": "plot-panel",
   "displayName": "Plot Panel",
-  "description": "Automatic figure capture and history for Jupyter notebooks and the Interactive Window, in a dedicated sidebar view.",
+  "description": "A Positron-style data science layout for VS Code: automatic plot capture and history, a Variables view, and an interactive Python console in the panel.",
   "version": "0.1.0",
   "publisher": "for56",
   "license": "MIT",

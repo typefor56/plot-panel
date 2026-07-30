@@ -97,25 +97,42 @@ functions, classes and modules kernel-side, so those sections stay empty
 with the stable data source.
 
 **Always two columns**: name | value, plus a small right-aligned type hint.
+Every row is a grid over the same tracks, so the boundary between the two is
+one straight line down the whole list whatever the row contains and however
+deep it sits. That line is also the handle: drag it to resize the name
+column (the position is remembered), or run *Reset Variables Column Width*
+to go back to sizing it to the longest name.
+
 DataFrames show their shape (`[444448 rows x 24 columns]`), Series and
 collections an elided `[begin, …, end]` preview with the element count in
 the hint (`list (1000)`), long reprs are cut hard. The filter field narrows
 by name; section headers collapse.
 
-Expansion keeps the two-column rule at every level:
+Expansion keeps the two-column rule at every level, but how deep it can go
+depends on where the variables come from:
 
-- **Everywhere (stable included)**: a DataFrame expands into its columns
-  (non-null count and dtype from `df.info()`), and each column expands again
-  into an index | value table; a Series expands into its index | value
-  pairs; lists, tuples, sets and arrays into position | item; dicts into
-  key | value. These tables are previews parsed from what pandas/numpy print
-  (typically the head and tail around a centered `⋯` row) — for full data,
-  use the grid button. pandas omits the `df.info()` table beyond 100 columns
-  and wraps very wide reprs, in which case those levels stay unexpandable.
-- **Full depth with live values** requires the Jupyter extension's Kernels
-  API, reserved for allow-listed publishers on stable VS Code; it works on
-  Insiders and in the test host, where expansion runs a real inspection
-  snippet on the kernel instead of parsing reprs.
+- **A console session** (see below) is a process the extension owns, so
+  children are read back from the live objects: a list of DataFrames opens
+  into frames, into columns, into index | value rows, with no depth limit
+  and real values. FUNCTIONS and CLASSES are reported directly.
+- **A notebook kernel** can only be described through `jupyter.listVariables`,
+  which returns truncated reprs. Tables are parsed out of them — a DataFrame
+  into its columns (non-null count and dtype from `df.info()`), a Series into
+  index | value pairs, lists/tuples/sets/arrays into position | item, dicts
+  into key | value — and nested values are recognised and expanded in turn.
+  Two hard ceilings apply, both in the repr itself: nesting collapses to
+  `...` past two levels, and every nested item is capped at 128 characters.
+  A DataFrame inside a list therefore shows its shape but usually cannot be
+  opened further; the grid button is the way through. pandas also omits the
+  `df.info()` table beyond 100 columns and wraps very wide reprs, which makes
+  those levels unexpandable.
+  FUNCTIONS and CLASSES are recovered from the source of the cells you have
+  run, with their signatures, because Jupyter's introspection excludes
+  functions, classes and modules kernel-side and takes no override.
+- **Full depth on a notebook kernel** would need the Jupyter extension's
+  Kernels API, which prompts for consent and is restricted on stable VS Code;
+  it is used on Insiders and in the test host, where expansion runs a real
+  inspection snippet on the kernel instead of parsing reprs.
 
 **Open in Data Viewer**: rows holding a DataFrame, Series, ndarray, list or
 dict (including DataFrame columns) show a grid button on hover that opens
@@ -123,6 +140,27 @@ the variable full-size via the Jupyter extension's data-viewer delegation —
 with Data Wrangler installed, that is where it opens. Requires a trusted
 workspace, the notebook open, and a live kernel; if no viewer extension is
 installed, Jupyter itself offers to find one.
+
+## The Console
+
+A **Console** tab sits in the bottom panel next to the terminal: an
+interactive Python session in the spirit of Positron's. It runs its own
+interpreter — the one the Python extension has selected for the workspace,
+otherwise `python.defaultInterpreterPath`, otherwise `python3` — so it is a
+namespace of its own, separate from any notebook kernel.
+
+That separation is the price of a session the extension fully controls, and
+it is what makes the Variables view able to show live values at any depth
+(see above): when you run something in a console, the Variables view follows
+it, and switches back when you activate a notebook again.
+
+Enter runs a line, Shift+Enter adds one; a compound statement continues on
+`...` until a blank line, as in any REPL, and the arrow keys browse history.
+The title bar offers interrupt (Ctrl+C into the running statement), restart
+(fresh process, empty namespace), clear, and a `+` for another session —
+several sessions share the one tab, since a contributed view exists once per
+window. *Send Selection to Console* (Ctrl+Enter in a Python file) pushes the
+selection, or the current line.
 
 **Performance**: refreshing asks the kernel to describe every variable
 (that is Jupyter's own introspection script running on the kernel, with
@@ -164,6 +202,10 @@ prefers the vector representation — crisper zooming, usually smaller files.
 | `Plot Panel: Refresh Variables` | title bar of the Variables view |
 | `Plot Panel: Group Variables by Kind / Size` | Group Variables By dropdown |
 | `Plot Panel: Sort Variables by Name / Size / Recently Changed` | Sort Variables By dropdown |
+| `Plot Panel: Reset Variables Column Width` | Variables view `…` menu |
+| `Plot Panel: New / Clear / Restart / Interrupt / Close Console` | title bar of the Console panel |
+| `Plot Panel: Select Console Interpreter…` | Console `…` menu; opens a session with the new choice |
+| `Plot Panel: Send Selection to Console` | editor context menu, or Ctrl+Enter in a Python file |
 
 On a pinned single-plot tab, save/copy/code act on that plot; everywhere else
 they act on the gallery selection.
@@ -182,10 +224,19 @@ they act on the gallery selection.
 - **The views cannot move themselves to the secondary sidebar.** The VS Code
   API has no way to place a view there; the one-time drag described above is
   required.
-- **Variables are Python-only, and deep expansion needs the Kernels API.**
-  Other kernels show nothing; on stable VS Code the publisher-gated Jupyter
-  Kernels API limits expansion to DataFrame columns (see above), and
-  functions/classes are filtered out by `jupyter.listVariables` itself.
+- **Variables are Python-only, and notebook expansion is limited by the
+  reprs.** Other kernels show nothing. For a notebook the depth is bounded by
+  what `jupyter.listVariables` prints (two levels of nesting, 128 characters
+  per nested item), and functions and classes come from the cell source
+  rather than from live objects. A console session has neither limit.
+- **The Console does not share a notebook's variables.** Running code in a
+  notebook kernel and reading its output back is reserved to the Jupyter
+  Kernels API, so the console is a separate interpreter. Use *Send Selection
+  to Console* to replay the code you want in it, or the Data Viewer button to
+  inspect notebook data.
+- **The Data Viewer button is notebook-only.** Jupyter's delegation resolves
+  the expression against a notebook's kernel; console rows expand in place
+  instead.
 - **Figures produced before the extension host finished starting** (very early
   in a session) are not captured; capture is event-based, not retroactive over
   pre-existing outputs.
