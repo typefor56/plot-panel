@@ -5,7 +5,26 @@
   "version": "0.1.0",
   "publisher": "for56",
   "license": "MIT",
-  "private": true,
+  "icon": "media/icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/typefor56/plot-panel-forvscode.git"
+  },
+  "bugs": {
+    "url": "https://github.com/typefor56/plot-panel-forvscode/issues"
+  },
+  "keywords": [
+    "jupyter",
+    "notebook",
+    "plots",
+    "matplotlib",
+    "variables",
+    "python",
+    "repl",
+    "console",
+    "r",
+    "data science"
+  ],
   "engines": {
     "vscode": "^1.90.0"
   },
