@@ -30,10 +30,54 @@
   // own output would otherwise show the raw codes.
   const ANSI = /\u001b\[[0-9;?]*[ -/]*[@-~]/g;
 
+  // Syntax highlighting for the echoed input, so the transcript reads like a
+  // REPL rather than a wall of one colour. Colours come from the theme's own
+  // terminal palette — the only token-ish colours exposed to a webview.
+  const TOKENS = [
+    ['comment', /#[^\n]*/y],
+    ['string', /(?:[rbfu]{0,2})(?:'''[\s\S]*?'''|"""[\s\S]*?"""|'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*")/y],
+    ['number', /\b\d[\w.]*\b/y],
+    ['keyword', /\b(?:and|as|assert|async|await|break|class|continue|def|del|elif|else|except|finally|for|from|global|if|import|in|is|lambda|nonlocal|not|or|pass|raise|return|try|while|with|yield|True|False|None|function|NULL|NA|TRUE|FALSE|repeat|next)\b/y],
+    ['magic', /^\s*[%!][A-Za-z_]\w*/y],
+    ['builtin', /\b(?:print|len|range|list|dict|set|tuple|str|int|float|bool|open|type|self|cat|paste|library|c)\b/y],
+  ];
+
+  function highlightInto(parent, text) {
+    let index = 0;
+    while (index < text.length) {
+      let matched = false;
+      for (const [kind, pattern] of TOKENS) {
+        pattern.lastIndex = index;
+        const found = pattern.exec(text);
+        if (found !== null && found.index === index && found[0].length > 0) {
+          const span = document.createElement('span');
+          span.className = 'tok-' + kind;
+          span.textContent = found[0];
+          parent.appendChild(span);
+          index += found[0].length;
+          matched = true;
+          break;
+        }
+      }
+      if (!matched) {
+        parent.appendChild(document.createTextNode(text[index]));
+        index++;
+      }
+    }
+  }
+
   function appendEntry(entry, stick) {
     const line = document.createElement('span');
     line.className = 'line-' + entry.kind;
-    line.textContent = entry.text.replace(ANSI, '');
+    const text = entry.text.replace(ANSI, '');
+    if (entry.kind === 'input') {
+      // Keep the prompt plain, colour the code after it.
+      const prompt = text.slice(0, 4);
+      line.appendChild(document.createTextNode(prompt));
+      highlightInto(line, text.slice(4));
+    } else {
+      line.textContent = text;
+    }
     scrollback.appendChild(line);
     if (stick) {
       scrollback.scrollTop = scrollback.scrollHeight;
@@ -163,12 +207,57 @@
     popup.textContent = '';
   }
 
+  // One glyph per kind, like the editor's suggest widget. Letters rather than
+  // codicons: a webview has no icon font, and a shape here would be one more
+  // thing to keep in sync with the theme.
+  const KIND_GLYPH = {
+    function: 'ƒ',
+    class: 'C',
+    module: 'M',
+    keyword: 'K',
+    magic: '%',
+    file: '⎘',
+    folder: '▸',
+    value: '□',
+  };
+
+  function typedPrefix() {
+    return input.value.slice(completionStart, input.selectionEnd);
+  }
+
   function renderCompletions() {
     popup.textContent = '';
+    const prefix = typedPrefix().toLowerCase();
     completionItems.forEach((item, index) => {
       const row = document.createElement('div');
       row.className = index === selected ? 'completion selected' : 'completion';
-      row.textContent = item;
+
+      const icon = document.createElement('span');
+      icon.className = 'completion-icon kind-' + item.kind;
+      icon.textContent = KIND_GLYPH[item.kind] || KIND_GLYPH.value;
+      row.appendChild(icon);
+
+      const label = document.createElement('span');
+      label.className = 'completion-label';
+      // Bold exactly what has been typed, as the editor does.
+      if (prefix.length > 0 && item.label.toLowerCase().startsWith(prefix)) {
+        const match = document.createElement('span');
+        match.className = 'completion-match';
+        match.textContent = item.label.slice(0, prefix.length);
+        label.appendChild(match);
+        label.appendChild(document.createTextNode(item.label.slice(prefix.length)));
+      } else {
+        label.textContent = item.label;
+      }
+      row.appendChild(label);
+
+      if (item.detail) {
+        const detail = document.createElement('span');
+        detail.className = 'completion-detail';
+        detail.textContent = item.detail;
+        row.appendChild(detail);
+      }
+
       row.addEventListener('mousedown', (event) => {
         // mousedown, not click: the textarea must not lose the caret first.
         event.preventDefault();
@@ -196,8 +285,8 @@
     }
     const before = input.value.slice(0, completionStart);
     const after = input.value.slice(input.selectionEnd);
-    input.value = before + item + after;
-    const caret = before.length + item.length;
+    input.value = before + item.label + after;
+    const caret = before.length + item.label.length;
     input.setSelectionRange(caret, caret);
     closeCompletions();
     resize();
@@ -290,6 +379,11 @@
   });
 
   input.addEventListener('blur', closeCompletions);
+
+  // Clicking into the console makes it the session the Variables view shows,
+  // the same way clicking a notebook cell hands the view back to it.
+  document.addEventListener('focusin', () => vscode.postMessage({ type: 'focused' }));
+  document.addEventListener('mousedown', () => vscode.postMessage({ type: 'focused' }));
 
   // Clicking anywhere in the transcript should let the user keep typing,
   // unless they are selecting text to copy.

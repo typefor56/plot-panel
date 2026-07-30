@@ -63,6 +63,9 @@ export function activate(context: vscode.ExtensionContext): PlotPanelApi {
     variablesOptions,
     consoles,
   );
+  // Clicking into the console shows its variables, as clicking a notebook
+  // cell shows the notebook's.
+  consoleView.onFocus = (session) => variables.showConsole(session);
 
   context.subscriptions.push(
     capture,

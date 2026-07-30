@@ -106,7 +106,31 @@ body {
 }
 
 .line-input {
-  color: var(--vscode-terminal-ansiBrightBlue, var(--vscode-textLink-foreground));
+  color: var(--vscode-foreground);
+}
+
+/* Token colours from the theme's terminal palette: a webview has no access
+   to the editor's own token colours. */
+.tok-keyword {
+  color: var(--vscode-terminal-ansiBrightMagenta, var(--vscode-terminal-ansiMagenta));
+}
+
+.tok-string {
+  color: var(--vscode-terminal-ansiBrightGreen, var(--vscode-terminal-ansiGreen));
+}
+
+.tok-number {
+  color: var(--vscode-terminal-ansiBrightYellow, var(--vscode-terminal-ansiYellow));
+}
+
+.tok-comment {
+  color: var(--vscode-descriptionForeground);
+  font-style: italic;
+}
+
+.tok-builtin,
+.tok-magic {
+  color: var(--vscode-terminal-ansiBrightCyan, var(--vscode-terminal-ansiCyan));
 }
 
 .line-err {
@@ -147,6 +171,9 @@ body {
 }
 
 .completion {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
   padding: 1px 6px;
   white-space: nowrap;
   cursor: pointer;
@@ -155,6 +182,60 @@ body {
 .completion.selected {
   color: var(--vscode-editorSuggestWidget-selectedForeground, var(--vscode-list-activeSelectionForeground));
   background-color: var(--vscode-editorSuggestWidget-selectedBackground, var(--vscode-list-activeSelectionBackground));
+}
+
+.completion-icon {
+  flex: 0 0 1.2em;
+  text-align: center;
+  opacity: 0.85;
+}
+
+.kind-function {
+  color: var(--vscode-symbolIcon-functionForeground, var(--vscode-terminal-ansiMagenta));
+}
+
+.kind-class {
+  color: var(--vscode-symbolIcon-classForeground, var(--vscode-terminal-ansiYellow));
+}
+
+.kind-module {
+  color: var(--vscode-symbolIcon-moduleForeground, var(--vscode-terminal-ansiBlue));
+}
+
+.kind-keyword,
+.kind-magic {
+  color: var(--vscode-symbolIcon-keywordForeground, var(--vscode-terminal-ansiCyan));
+}
+
+.kind-file,
+.kind-folder {
+  color: var(--vscode-symbolIcon-fileForeground, var(--vscode-terminal-ansiBlue));
+}
+
+.kind-value {
+  color: var(--vscode-symbolIcon-variableForeground, var(--vscode-foreground));
+}
+
+.completion-label {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The part already typed, highlighted as the editor's suggest widget does. */
+.completion-match {
+  color: var(--vscode-editorSuggestWidget-highlightForeground, var(--vscode-list-highlightForeground));
+  font-weight: 600;
+}
+
+.completion.selected .completion-match {
+  color: var(--vscode-editorSuggestWidget-focusHighlightForeground, var(--vscode-list-focusHighlightForeground, inherit));
+}
+
+.completion-detail {
+  flex: 0 0 auto;
+  opacity: 0.7;
+  font-size: 0.9em;
 }
 
 #input-row {

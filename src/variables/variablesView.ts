@@ -207,7 +207,17 @@ export class VariablesViewProvider implements vscode.WebviewViewProvider, vscode
   private decorated: readonly DecoratedVariable[] = [];
   private targetName: string | undefined;
   /** Stable-tier expansion: repr-parsed preview tables, built on demand. */
-  private readonly tree = new ExpandRegistry();
+  private tree = new ExpandRegistry();
+  /**
+   * Last rendered state per target. Switching between a notebook and a
+   * console then has nothing to wait for: the previous list is redrawn at
+   * once and a refresh follows in the background. Asking the kernel first
+   * left the view blank for as long as the introspection took.
+   */
+  private readonly snapshots = new Map<
+    string,
+    { decorated: readonly DecoratedVariable[]; targetName: string; tree: ExpandRegistry }
+  >();
   /** Per-notebook change tracking for the Recent sort (session-scoped). */
   private readonly recency = new Map<string, Map<string, { signature: string; changedAt: number }>>();
   private readonly cancellation = new vscode.CancellationTokenSource();
@@ -227,8 +237,7 @@ export class VariablesViewProvider implements vscode.WebviewViewProvider, vscode
     this.disposables.push(
       vscode.window.onDidChangeActiveNotebookEditor((editor) => {
         if (editor !== undefined && !this.targets(editor.notebook)) {
-          this.target = { kind: 'notebook', notebook: editor.notebook };
-          this.scheduleRefresh(0);
+          this.switchTo({ kind: 'notebook', notebook: editor.notebook });
         }
       }),
       // Refresh when an execution *ends* (executionSummary.timing lands),
@@ -253,15 +262,15 @@ export class VariablesViewProvider implements vscode.WebviewViewProvider, vscode
         }
         const notebook = this.notebookOf(editor.document);
         if (notebook !== undefined && !this.targets(notebook)) {
-          this.target = { kind: 'notebook', notebook };
-          this.scheduleRefresh(0);
+          this.switchTo({ kind: 'notebook', notebook });
         }
       }),
       vscode.workspace.onDidCloseNotebookDocument((notebook) => {
-        this.recency.delete(notebook.uri.toString());
+        const key = notebook.uri.toString();
+        this.recency.delete(key);
+        this.snapshots.delete(key);
         if (this.targets(notebook)) {
-          this.target = undefined;
-          this.scheduleRefresh(0);
+          this.switchTo(undefined);
         }
       }),
     );
@@ -276,28 +285,56 @@ export class VariablesViewProvider implements vscode.WebviewViewProvider, vscode
   }
 
   /**
-   * A console claims the view only once it actually *runs* something — the
-   * same rule as a notebook, whose executions claim it too. Merely opening
-   * the panel must not blank out the variables of the notebook being worked
-   * on. Its own completion is what triggers the refresh: no polling.
+   * Point the view at another source. The cached rows for that source are
+   * drawn immediately, so switching feels instant, and a refresh follows.
+   */
+  private switchTo(target: VariablesTarget | undefined): void {
+    this.target = target;
+    if (target === undefined) {
+      this.decorated = [];
+      this.targetName = undefined;
+      this.tree = new ExpandRegistry();
+      this.renderFromCache();
+      return;
+    }
+    const snapshot = this.snapshots.get(targetKey(target));
+    if (snapshot !== undefined) {
+      this.decorated = snapshot.decorated;
+      this.targetName = snapshot.targetName;
+      this.tree = snapshot.tree;
+      this.renderFromCache();
+    }
+    this.scheduleRefresh(0);
+  }
+
+  /** Called when the console view takes focus: it becomes the source. */
+  showConsole(session: ConsoleSession): void {
+    if (this.target?.kind === 'console' && this.target.session === session) {
+      return;
+    }
+    this.switchTo({ kind: 'console', session });
+  }
+
+  /**
+   * Which source is on show follows where the user clicks (see showConsole
+   * and the editor listeners); this only keeps the shown console fresh, by
+   * refreshing when one of its executions ends. No polling.
    */
   private onConsolesChanged(consoles: ConsoleSessionManager): void {
     const active = consoles.active;
     if (active === undefined) {
       if (this.target?.kind === 'console') {
-        this.target = this.activeNotebookTarget();
-        this.scheduleRefresh(0);
+        this.switchTo(this.activeNotebookTarget());
       }
       return;
     }
     const wasBusy = this.consoleBusy;
     this.consoleBusy = active.state === 'busy';
-    const shows = this.target?.kind === 'console' && this.target.session === active;
-    if (!shows) {
-      if (this.consoleBusy) {
-        this.target = { kind: 'console', session: active };
-        this.scheduleRefresh(0);
-      }
+    if (this.target?.kind !== 'console') {
+      return;
+    }
+    if (this.target.session !== active) {
+      this.switchTo({ kind: 'console', session: active });
       return;
     }
     if (wasBusy && active.state === 'idle') {
@@ -416,12 +453,23 @@ export class VariablesViewProvider implements vscode.WebviewViewProvider, vscode
     }
     this.post({ type: 'busy', busy: true });
     const listed = await this.listFor(target);
-    this.tree.clear();
+    if (this.target !== target) {
+      // The user moved on while the kernel was answering: that reply belongs
+      // to a source no longer on show.
+      this.post({ type: 'busy', busy: false });
+      return;
+    }
+    this.tree = new ExpandRegistry();
     const changed = this.trackRecency(targetKey(target), listed);
     this.decorated = listed.map((variable) =>
       this.decorate(variable, changed.get(variable.name) ?? 0),
     );
     this.targetName = targetLabel(target);
+    this.snapshots.set(targetKey(target), {
+      decorated: this.decorated,
+      targetName: this.targetName,
+      tree: this.tree,
+    });
     this.renderFromCache();
   }
 

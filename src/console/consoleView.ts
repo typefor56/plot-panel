@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import * as vscode from 'vscode';
 import type { ConsoleSessionManager } from './sessionManager';
-import type { TranscriptEntry } from './session';
+import type { CompletionItem, ConsoleSession, TranscriptEntry } from './session';
 
 /**
  * The Console view, contributed to the bottom panel next to the terminal.
@@ -39,7 +39,7 @@ type ToConsoleMessage =
       readonly type: 'completions';
       readonly token: number;
       readonly start: number;
-      readonly items: readonly string[];
+      readonly items: readonly CompletionItem[];
     };
 
 type FromConsoleMessage =
@@ -48,6 +48,7 @@ type FromConsoleMessage =
   | { readonly type: 'select'; readonly id: number }
   | { readonly type: 'close'; readonly id: number }
   | { readonly type: 'new' }
+  | { readonly type: 'focused' }
   | {
       readonly type: 'complete';
       readonly token: number;
@@ -59,6 +60,9 @@ export class ConsoleViewProvider implements vscode.WebviewViewProvider, vscode.D
   static readonly viewType = 'plotPanel.console';
 
   private view: vscode.WebviewView | undefined;
+  /** Notified when the user clicks into the console, so the Variables view
+   *  can switch to that session. */
+  onFocus: ((session: ConsoleSession) => void) | undefined;
   /** Session whose appends are currently wired to the webview. */
   private followedId: number | undefined;
   private unfollow: (() => void) | undefined;
@@ -121,6 +125,13 @@ export class ConsoleViewProvider implements vscode.WebviewViewProvider, vscode.D
       case 'new':
         await this.sessions.create();
         break;
+      case 'focused': {
+        const focused = this.sessions.active;
+        if (focused !== undefined) {
+          this.onFocus?.(focused);
+        }
+        break;
+      }
       case 'complete': {
         const session = this.sessions.active;
         if (session === undefined) {

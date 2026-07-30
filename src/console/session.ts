@@ -28,10 +28,32 @@ interface PendingRequest {
   readonly resolve: (frame: Record<string, unknown>) => void;
 }
 
+export interface CompletionItem {
+  readonly label: string;
+  /** function | class | module | value | keyword | magic | file | folder */
+  readonly kind: string;
+  /** Type name shown to the right, as the editor's suggest widget does. */
+  readonly detail: string;
+}
+
 export interface Completions {
   /** Index in the line where the replaced token starts. */
   readonly start: number;
-  readonly items: readonly string[];
+  readonly items: readonly CompletionItem[];
+}
+
+function toCompletionItem(value: unknown): CompletionItem | undefined {
+  if (typeof value === 'string') {
+    return { label: value, kind: 'value', detail: '' };
+  }
+  if (!isRecord(value) || typeof value['label'] !== 'string') {
+    return undefined;
+  }
+  return {
+    label: value['label'],
+    kind: typeof value['kind'] === 'string' ? value['kind'] : 'value',
+    detail: typeof value['detail'] === 'string' ? value['detail'] : '',
+  };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -129,7 +151,13 @@ export class ConsoleSession {
     try {
       child = spawn(this.runtime.command, args, {
         ...(this.cwd === undefined ? {} : { cwd: this.cwd }),
-        env: { ...process.env, PYTHONIOENCODING: 'utf-8' },
+        env: {
+          ...process.env,
+          PYTHONIOENCODING: 'utf-8',
+          // No display is attached to this process: a plotting library that
+          // reached for a window backend would hang or fail outright.
+          MPLBACKEND: 'Agg',
+        },
       });
     } catch {
       this.append({ kind: 'err', text: `Could not start ${this.runtime.command}.\n` });
@@ -184,11 +212,23 @@ export class ConsoleSession {
     }
     const kind = frame['t'];
     switch (kind) {
-      case 'ready':
+      case 'ready': {
         this.interpreterLabel = typeof frame['version'] === 'string' ? frame['version'] : '';
+        const executable = typeof frame['executable'] === 'string' ? frame['executable'] : '';
+        const language = this.runtime.language === 'r' ? 'R' : 'Python';
+        // A banner, as any REPL opens with: which interpreter is answering
+        // matters as soon as more than one can be started.
+        this.append({
+          kind: 'notice',
+          text:
+            `${language} ${this.interpreterLabel}` +
+            `${executable.length > 0 ? ` — ${executable}` : ''}` +
+            `${frame['magics'] === true ? ' — IPython magics available' : ''}\n`,
+        });
         this.continuation = false;
         this.setState('idle');
         break;
+      }
       case 'out':
       case 'err':
       case 'result':
@@ -266,7 +306,14 @@ export class ConsoleSession {
     if (typeof start !== 'number' || !Array.isArray(items)) {
       return empty;
     }
-    return { start, items: items.filter((item): item is string => typeof item === 'string') };
+    const parsed: CompletionItem[] = [];
+    for (const item of items) {
+      const completion = toCompletionItem(item);
+      if (completion !== undefined) {
+        parsed.push(completion);
+      }
+    }
+    return { start, items: parsed };
   }
 
   private async requestData(

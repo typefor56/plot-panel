@@ -30,10 +30,13 @@ Unlike a Jupyter kernel, this one reports functions and classes too, and
 `children` re-reads live objects, so expansion has no depth limit.
 """
 
+import builtins
 import codeop
 import io
 import json
 import keyword
+import os
+import re
 import rlcompleter
 import sys
 import threading
@@ -200,6 +203,13 @@ def _make_shell():
             _emit(t="err", id=_ACTIVE_ID, s="\n".join(stb) + "\n")
 
         shell._showtraceback = show_traceback
+
+        # matplotlib asks IPython to start a GUI event loop as soon as a
+        # figure is created, and a bare InteractiveShell raises
+        # NotImplementedError for that. There is no GUI here — figures are
+        # captured, not windowed — so accepting and ignoring the request is
+        # both correct and what keeps %run working on plotting notebooks.
+        shell.enable_gui = lambda gui=None: None
         return shell
     except Exception:
         return None
@@ -309,11 +319,19 @@ class Session:
         token = prefix[start:]
 
         # A magic is only a magic at the start of the line.
-        if self.shell is not None and prefix[:start].strip() == "" and token == "":
-            if prefix.strip().startswith("%"):
-                return {"start": start, "items": self._magics(prefix.strip())}
-        if prefix.lstrip().startswith("%") and self.shell is not None:
-            return {"start": start, "items": self._magics(token)}
+        magic = re.match(r"\s*(%{1,2}[A-Za-z_]*)$", prefix)
+        if magic is not None and self.shell is not None:
+            found = self._magics(magic.group(1))
+            return {
+                "start": prefix.rindex(magic.group(1)),
+                "items": [{"label": name, "kind": "magic", "detail": ""} for name in found],
+            }
+
+        # Inside quotes, or right after %run/%cd/open(, a path is what is
+        # wanted — not a Python name.
+        paths = self._paths(prefix)
+        if paths is not None:
+            return paths
 
         items = []
         seen = set()
@@ -336,6 +354,80 @@ class Session:
                     seen.add(word)
                     items.append(word)
         items.sort(key=lambda name: (name.startswith("_"), name.lower()))
+        return {"start": start, "items": [self._describe(name) for name in items[:100]]}
+
+    def _describe(self, name):
+        """Label plus the kind and type the view shows beside it."""
+        target = self.namespace
+        leaf = name
+        if "." in name:
+            head, _, leaf = name.rpartition(".")
+            try:
+                target = eval(head, self.namespace)
+            except Exception:
+                return {"label": name, "kind": "value", "detail": ""}
+        try:
+            if isinstance(target, dict):
+                value = target[leaf] if leaf in target else getattr(builtins, leaf)
+            else:
+                value = getattr(target, leaf)
+        except Exception:
+            return {
+                "label": name,
+                "kind": "keyword" if name in keyword.kwlist else "value",
+                "detail": "",
+            }
+        try:
+            type_name = type(value).__name__
+        except Exception:
+            type_name = ""
+        if isinstance(value, type):
+            kind = "class"
+        elif callable(value):
+            kind = "function"
+        elif type(value).__name__ == "module":
+            kind = "module"
+        else:
+            kind = "value"
+        return {"label": name, "kind": kind, "detail": type_name}
+
+    PATH_TRIGGERS = ("%run", "%cd", "%load", "%pycat", "!cat", "!ls", "open(")
+
+    def _paths(self, prefix):
+        """Filenames when the line is clearly asking for one; else None."""
+        stripped = prefix.lstrip()
+        quote = max(stripped.rfind("'"), stripped.rfind('"'))
+        wants_path = any(stripped.startswith(trigger) for trigger in self.PATH_TRIGGERS)
+        if not wants_path and quote == -1:
+            return None
+        cut = quote + 1 if quote != -1 else max(
+            (len(prefix) - len(stripped)) + len(trigger)
+            for trigger in self.PATH_TRIGGERS
+            if stripped.startswith(trigger)
+        )
+        partial = prefix[cut:].lstrip() if quote == -1 else prefix[cut:]
+        start = len(prefix) - len(partial)
+        directory, _, stem = partial.rpartition("/")
+        base = directory if directory else "."
+        try:
+            entries = sorted(os.listdir(base))
+        except Exception:
+            return None
+        items = []
+        for entry in entries:
+            if entry.startswith(".") and not stem.startswith("."):
+                continue
+            if not entry.startswith(stem):
+                continue
+            full = os.path.join(base, entry)
+            is_directory = os.path.isdir(full)
+            items.append(
+                {
+                    "label": (directory + "/" if directory else "") + entry + ("/" if is_directory else ""),
+                    "kind": "folder" if is_directory else "file",
+                    "detail": "",
+                }
+            )
         return {"start": start, "items": items[:100]}
 
     def _magics(self, token):

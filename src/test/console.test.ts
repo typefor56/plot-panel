@@ -55,6 +55,10 @@ async function run(session: ConsoleSession, code: string): Promise<void> {
   await waitFor(session, () => session.state === 'idle');
 }
 
+function labels(completions: { items: readonly { label: string }[] }): readonly string[] {
+  return completions.items.map((item) => item.label);
+}
+
 function transcriptOf(session: ConsoleSession, kind: string): string {
   return session.transcript
     .filter((entry) => entry.kind === kind)
@@ -190,14 +194,14 @@ suite('console session', function () {
 
     const names = await session.complete('call', 4);
     assert.strictEqual(names.start, 0);
-    assert.ok(names.items.includes('calls_per_day'), names.items.join(','));
+    assert.ok(labels(names).includes('calls_per_day'), labels(names).join(','));
 
     // Attribute completion only works because the namespace is live.
     const attributes = await session.complete('calls_per_day.app', 17);
     assert.strictEqual(attributes.start, 0);
     assert.ok(
-      attributes.items.includes('calls_per_day.append'),
-      attributes.items.join(','),
+      labels(attributes).includes('calls_per_day.append'),
+      labels(attributes).join(','),
     );
   });
 
@@ -207,7 +211,7 @@ suite('console session', function () {
     const line = 'print(val';
     const completions = await session.complete(line, line.length);
     assert.strictEqual(completions.start, 'print('.length);
-    assert.ok(completions.items.includes('value'), completions.items.join(','));
+    assert.ok(labels(completions).includes('value'), labels(completions).join(','));
   });
 
   test('clear empties the transcript but keeps the session', async () => {
@@ -308,8 +312,8 @@ suite('console session: R', function () {
     const completions = await session.complete('my_me', 5);
     assert.strictEqual(completions.start, 0);
     assert.ok(
-      completions.items.includes('my_measurements'),
-      completions.items.slice(0, 5).join(','),
+      labels(completions).includes('my_measurements'),
+      labels(completions).slice(0, 5).join(','),
     );
   });
 });
