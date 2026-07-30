@@ -15,6 +15,7 @@
   const promptLabel = document.getElementById('prompt');
   const input = document.getElementById('input');
   const popup = document.getElementById('completions');
+  const highlight = document.getElementById('input-highlight');
 
   /** Submitted lines, oldest first; browsed with the arrow keys. */
   const history = [];
@@ -153,6 +154,14 @@
   function resize() {
     input.style.height = 'auto';
     input.style.height = input.scrollHeight + 'px';
+    paintInput();
+  }
+
+  /** Re-colour the layer sitting under the transparent textarea. */
+  function paintInput() {
+    highlight.textContent = '';
+    // A trailing newline would otherwise collapse and shorten the layer.
+    highlightInto(highlight, input.value + '\n');
   }
 
   function submit() {

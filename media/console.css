@@ -255,18 +255,50 @@ body {
   user-select: none;
 }
 
-#input {
+/* The textarea sits on top of a highlighted copy of the same text, so what
+   is being typed is coloured too. Every metric below must match between the
+   two or the caret would drift away from the glyphs. */
+#input-stack {
+  position: relative;
   flex: 1 1 auto;
   min-width: 0;
-  resize: none;
-  border: none;
-  outline: none;
+}
+
+#input,
+#input-highlight {
+  margin: 0;
   padding: 0;
-  color: var(--vscode-input-foreground, var(--vscode-foreground));
-  background-color: transparent;
+  border: none;
   font-family: inherit;
   font-size: inherit;
   line-height: 1.4;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  tab-size: 4;
+}
+
+#input-highlight {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  color: var(--vscode-foreground);
+}
+
+#input {
+  position: relative;
+  display: block;
+  width: 100%;
+  min-height: 1.4em;
+  resize: none;
+  outline: none;
+  background-color: transparent;
+  /* Transparent glyphs reveal the highlighted layer; the caret stays. */
+  color: transparent;
+  caret-color: var(--vscode-editorCursor-foreground, var(--vscode-foreground));
+}
+
+#input::selection {
+  background-color: var(--vscode-editor-selectionBackground);
 }
 
 body.busy #prompt {

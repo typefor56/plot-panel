@@ -237,8 +237,11 @@ export class ConsoleViewProvider implements vscode.WebviewViewProvider, vscode.D
     <div id="completions" role="listbox" aria-label="Completions" hidden></div>
     <div id="input-row">
       <span id="prompt" aria-hidden="true">&gt;&gt;&gt;</span>
-      <textarea id="input" rows="1" spellcheck="false" autocomplete="off"
-                aria-label="Console input"></textarea>
+      <div id="input-stack">
+        <pre id="input-highlight" aria-hidden="true"></pre>
+        <textarea id="input" rows="1" spellcheck="false" autocomplete="off"
+                  aria-label="Console input"></textarea>
+      </div>
     </div>
   </div>
   <script nonce="${nonce}" src="${scriptUri}"></script>

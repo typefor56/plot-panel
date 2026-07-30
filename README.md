@@ -158,7 +158,11 @@ Enter runs a line, Shift+Enter adds one; a compound statement continues on
 `...` until a blank line, as in any REPL, and the arrow keys browse history.
 Tab indents, and **Ctrl+Space** (or simply typing a name) offers completions
 taken from the live session — the interpreter knows what the objects really
-are, so `df.` lists that frame's own members. Enter or Tab accepts.
+are, so `df.` lists that frame's own members. Enter or Tab accepts. After
+`%run`, `%cd` or inside quotes it completes filenames instead. Input is
+syntax-highlighted as you type and in the transcript; the colours come from
+the theme's terminal palette, since a webview cannot reach the editor's own
+token colours, so it resembles the editor without being identical to it.
 
 When the environment has **IPython**, magics work: `%run script.py`,
 `%run notebook.ipynb`, `%timeit`, `!shell` and the rest. Without it the
