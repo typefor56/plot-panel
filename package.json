@@ -6,15 +6,15 @@
   "publisher": "for56",
   "license": "MIT",
   "icon": "media/icon.png",
-  "homepage": "https://github.com/typefor56/plot-panel-forvscode#readme",
+  "homepage": "https://github.com/typefor56/plot-panel#readme",
   "repository": {
     "type": "git",
-    "url": "https://github.com/typefor56/plot-panel-forvscode.git"
+    "url": "https://github.com/typefor56/plot-panel.git"
   },
   "bugs": {
-    "url": "https://github.com/typefor56/plot-panel-forvscode/issues"
+    "url": "https://github.com/typefor56/plot-panel/issues"
   },
-  "qna": "https://github.com/typefor56/plot-panel-forvscode/issues",
+  "qna": "https://github.com/typefor56/plot-panel/issues",
   "keywords": [
     "jupyter",
     "notebook",

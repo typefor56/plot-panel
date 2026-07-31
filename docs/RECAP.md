@@ -11,7 +11,7 @@ A VS Code extension reproducing the layout a data science IDE gives you: a
 plots pane with history, a variables explorer, and an interactive console. It
 targets Python notebooks, plus R in the console.
 
-Identity: publisher `for56`, repository `typefor56/plot-panel-forvscode`,
+Identity: publisher `for56`, repository `typefor56/plot-panel`,
 MIT, version 0.1.0. Zero runtime dependencies, no network, no telemetry.
 
 ## The three pieces
@@ -72,7 +72,7 @@ commands whose payloads were established by reading the shipped bundles.
 
 ## Left to do
 
-Publishing needs a GitHub repository at `typefor56/plot-panel-forvscode`,
+Publishing needs a GitHub repository at `typefor56/plot-panel`,
 pushed public, because the readme points at its screenshots by absolute url and
 the Marketplace does not resolve relative paths. Then a publisher account for
 `for56` and an Azure DevOps token, and `vsce publish`.
