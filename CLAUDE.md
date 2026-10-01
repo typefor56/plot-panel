@@ -242,10 +242,11 @@ Toute violation est un échec du projet, pas un compromis acceptable :
   du code ne peut pas simuler une réponse) et enveloppe chaque accès dans
   try/except (l'expansion peut exécuter des property getters — compromis
   standard des inspecteurs).
-- **Clear Variables sur un notebook** = `jupyter.restartkernel` confirmé,
-  puis `clearedAt` : FUNCTIONS/CLASSES (lues dans le source des cellules)
-  ne comptent plus que les cellules dont `timing.endTime` est postérieur au
-  clear. Les numéros d'exécution repartent à 1 au restart et ne distinguent
+- **FUNCTIONS/CLASSES ne viennent que des cellules exécutées dans la
+  session** : un `.ipynb` rouvert garde les numéros d'exécution sans kernel
+  derrière ; ne comptent que les cellules dont `timing.endTime` est
+  postérieur au démarrage de l'extension, ou au dernier Clear Variables
+  (`jupyter.restartkernel` confirmé, puis `clearedAt`). Les numéros d'exécution repartent à 1 au restart et ne distinguent
   rien. Un restart par le bouton de Jupyter reste invisible (pas d'événement
   stable).
 - **Conteneur Plots dans `viewsContainers.secondarySidebar`** (onglet à côté

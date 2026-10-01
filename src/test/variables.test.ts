@@ -12,6 +12,8 @@ import {
 import { ndarrayShape } from '../variables/reprParse';
 import { INSPECT_SENTINEL, buildInspectCode, parseInspectReply } from '../variables/inspect';
 import { parseDataFrameSummary } from '../variables/summary';
+import { definedInCells } from '../variables/variablesView';
+import * as vscode from 'vscode';
 import * as fx from './reprFixtures';
 
 suite('variables: categorization', () => {
@@ -324,5 +326,23 @@ suite('variables: value and size columns', () => {
       assert.strictEqual(ndarrayShape(raw, count), expected, raw);
     }
     assert.strictEqual(ndarrayShape('<object at 0x1>', 0), undefined);
+  });
+});
+
+suite('variables: definitions read from executed cells', () => {
+  test('a reopened notebook shows no FUNCTIONS/CLASSES until its cells run again', async () => {
+    const start = Date.now();
+    const saved = new vscode.NotebookCellData(vscode.NotebookCellKind.Code, 'def old():\n    pass', 'python');
+    saved.executionSummary = { executionOrder: 3 }; // a count kept in the .ipynb, no run time
+    const ran = new vscode.NotebookCellData(vscode.NotebookCellKind.Code, 'class Fresh:\n    pass', 'python');
+    ran.executionSummary = { executionOrder: 1, timing: { startTime: start + 5, endTime: start + 10 } };
+    const notebook = await vscode.workspace.openNotebookDocument(
+      'jupyter-notebook',
+      new vscode.NotebookData([saved, ran]),
+    );
+    assert.deepStrictEqual(
+      definedInCells(notebook, start).map((definition) => definition.name),
+      ['Fresh'],
+    );
   });
 });

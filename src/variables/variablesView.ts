@@ -146,9 +146,9 @@ function childRow(child: ChildVariable): VariableRow {
  * the only place left to find them on stable VS Code — which means their
  * value is the signature, not a live object.
  */
-function definedInCells(
+export function definedInCells(
   notebook: vscode.NotebookDocument,
-  since: number | undefined,
+  since: number,
 ): readonly KernelVariable[] {
   const executed = notebook
     .getCells()
@@ -157,9 +157,10 @@ function definedInCells(
         cell.kind === vscode.NotebookCellKind.Code &&
         cell.document.languageId === 'python' &&
         cell.executionSummary?.executionOrder !== undefined &&
-        // After Clear Variables only cells run since count: execution counts
-        // restart at 1 with the kernel, so the end time is what tells.
-        (since === undefined || (cell.executionSummary.timing?.endTime ?? 0) > since),
+        // Only cells run since `since` count: a reopened .ipynb keeps every
+        // cell's execution count with no kernel behind it, and after Clear
+        // Variables counts restart at 1 — the end time is what tells.
+        (cell.executionSummary.timing?.endTime ?? 0) > since,
     )
     .sort(
       (left, right) =>
@@ -220,6 +221,8 @@ export class VariablesViewProvider implements vscode.WebviewViewProvider, vscode
   private refreshTimer: ReturnType<typeof setTimeout> | undefined;
   /** When Clear Variables last restarted each notebook's kernel (by URI). */
   private readonly clearedAt = new Map<string, number>();
+  /** Cells run before this (counts saved in the .ipynb) define nothing live. */
+  private readonly sessionStart = Date.now();
   private inFlight = false;
   private queued = false;
   /** An execution happened while the view was hidden or auto-refresh was off. */
@@ -575,7 +578,7 @@ export class VariablesViewProvider implements vscode.WebviewViewProvider, vscode
     const live = new Set(variables.map((variable) => variable.name));
     return [
       ...variables,
-      ...definedInCells(notebook, this.clearedAt.get(notebook.uri.toString())).filter((definition) => !live.has(definition.name)),
+      ...definedInCells(notebook, this.clearedAt.get(notebook.uri.toString()) ?? this.sessionStart).filter((definition) => !live.has(definition.name)),
     ];
   }
 
