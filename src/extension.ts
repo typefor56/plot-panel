@@ -114,6 +114,12 @@ export function activate(context: vscode.ExtensionContext): PlotPanelApi {
       variables.resetColumnWidth(),
     ),
     vscode.commands.registerCommand('plotPanel.clearVariables', () => variables.clearVariables()),
+    // Both at once (Ctrl+Shift+L): the plots first, then the variables, whose
+    // notebook kernel restart still asks for confirmation.
+    vscode.commands.registerCommand('plotPanel.clearAll', async () => {
+      history.clear();
+      await variables.clearVariables();
+    }),
     consoles,
     consoleView,
     vscode.window.registerWebviewViewProvider(ConsoleViewProvider.viewType, consoleView),

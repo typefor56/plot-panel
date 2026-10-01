@@ -308,6 +308,12 @@
         "command": "plotPanel.sendSelectionToConsole",
         "title": "Send Selection to Console",
         "category": "Plot Panel"
+      },
+      {
+        "command": "plotPanel.clearAll",
+        "title": "Clear Plot History and Variables",
+        "category": "Plot Panel",
+        "icon": "$(clear-all)"
       }
     ],
     "submenus": [
@@ -616,6 +622,18 @@
         "key": "ctrl+enter",
         "mac": "cmd+enter",
         "when": "editorTextFocus && editorLangId == python && !notebookEditorFocused"
+      },
+      {
+        "command": "plotPanel.clearHistory",
+        "key": "ctrl+l",
+        "mac": "cmd+l",
+        "when": "notebookEditorFocused || focusedView =~ /^plotPanel\\./"
+      },
+      {
+        "command": "plotPanel.clearAll",
+        "key": "ctrl+shift+l",
+        "mac": "cmd+shift+l",
+        "when": "notebookEditorFocused || focusedView =~ /^plotPanel\\./"
       }
     ],
     "configuration": {
