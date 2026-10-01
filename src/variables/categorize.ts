@@ -11,7 +11,7 @@
  * modules kernel-side, so those sections only fill from richer sources.
  */
 
-import { elideItems, parseCollectionRepr, parseSeriesRepr } from './reprParse';
+import { elideItems, ndarrayShape, parseCollectionRepr, parseSeriesRepr } from './reprParse';
 
 export type VariableCategory = 'data' | 'values' | 'functions' | 'classes';
 
@@ -97,7 +97,9 @@ export function typeHint(type: string, indexedChildrenCount: number): string {
   const short = lastSegment(type);
   const root = type.includes('.') ? type.slice(0, type.indexOf('.')) : '';
   const alias = PACKAGE_ALIAS[root] ?? root;
-  const name = PREFIXED_TYPES.has(short) && alias.length > 0 ? `${alias}.${short}` : short;
+  // numpy scalars keep their package too: "np.int64", not a bare "int64".
+  const prefixed = PREFIXED_TYPES.has(short) || (root === 'numpy' && NUMPY_SCALAR.test(short));
+  const name = prefixed && alias.length > 0 ? `${alias}.${short}` : short;
   return indexedChildrenCount > 0 ? `${name} (${indexedChildrenCount})` : name;
 }
 
@@ -124,6 +126,22 @@ const COLLECTION_BRACKETS: Readonly<Record<string, readonly [string, string]>> =
  * - everything else → the repr with whitespace collapsed.
  */
 export function formatVariableValue(type: string, raw: string): string {
+  return unwrapNumpyScalars(formatRaw(type, raw));
+}
+
+/**
+ * numpy 2 reprs its scalars as "np.int64(8)"; the type column already says
+ * np.int64, so the value column keeps just the number — in lists and
+ * previews too ("[np.float64(3.2), …]" → "[3.2, …]").
+ */
+const NUMPY_SCALAR_REPR =
+  /\b(?:np|numpy)\.(?:u?int\d*|float\d*|complex\d*|bool_?|str_|bytes_|longdouble|clongdouble|datetime64|timedelta64)\(([^()]*)\)/g;
+
+function unwrapNumpyScalars(value: string): string {
+  return value.replace(NUMPY_SCALAR_REPR, '$1');
+}
+
+function formatRaw(type: string, raw: string): string {
   const short = lastSegment(type);
   if (short === 'DataFrame') {
     const match = ROWS_X_COLUMNS.exec(raw);
@@ -188,14 +206,79 @@ export function variableSize(type: string, raw: string, indexedChildrenCount: nu
   return 0;
 }
 
-/** Count shown in the type hint ("list (1000)"); 0 = omit. Strings and
- *  DataFrames stay bare — their size is visible in the value column. */
-export function variableCount(type: string, raw: string, indexedChildrenCount: number): number {
-  const short = lastSegment(type);
-  if (short === 'DataFrame' || short === 'str' || R_DATA_TYPES.has(type)) {
-    return 0;
+/** Python scalars, whose value is short and is the whole point. */
+const CONSTANT_TYPES = new Set([
+  'int',
+  'float',
+  'complex',
+  'bool',
+  'str',
+  'bytes',
+  'NoneType',
+  'Decimal',
+  'Fraction',
+]);
+/** numpy scalars (np.float64, np.int32, np.bool_…), matched on the last segment. */
+const NUMPY_SCALAR = /^(u?int\d*|float\d*|complex\d*|bool_?|str_|bytes_|datetime64|timedelta64)$/;
+/** R atomic vectors: a constant only at length 1. */
+const R_ATOMIC_TYPES = new Set(['numeric', 'integer', 'double', 'character', 'logical', 'complex']);
+
+/**
+ * Whether the value column shows this variable's value. Only constants do:
+ * for a container the value is a truncated preview nobody reads — its type
+ * and size say more, and the Data Viewer or the expansion shows the content.
+ */
+export function isConstant(type: string, size: number): boolean {
+  if (R_ATOMIC_TYPES.has(type)) {
+    return size <= 1;
   }
-  return variableSize(type, raw, indexedChildrenCount);
+  const short = lastSegment(type);
+  return CONSTANT_TYPES.has(short) || NUMPY_SCALAR.test(short);
+}
+
+/** df.info(): "RangeIndex: 100 entries, 0 to 99" … "Data columns (total 3 columns):". */
+const INFO_ROWS = /(\d[\d,]*) entries/;
+// Past 100 columns pandas drops the table and writes "Columns: 150 entries, a to z".
+const INFO_COLUMNS = /total (\d[\d,]*) columns|Columns: (\d[\d,]*) entries/;
+
+/**
+ * Size column. Arrays and tables use numpy's shape notation — "(10,)",
+ * "(100, 100)", "(2, 3, 10)" — since a count alone hides the dimensions;
+ * other containers show their length; constants nothing ('' = unknown).
+ */
+export function sizeLabel(
+  type: string,
+  raw: string,
+  indexedChildrenCount: number,
+  summary?: string,
+): string {
+  const short = lastSegment(type);
+  if (short === 'ndarray') {
+    return (
+      ndarrayShape(raw, indexedChildrenCount) ??
+      (indexedChildrenCount > 0 ? `(${indexedChildrenCount},)` : '')
+    );
+  }
+  if (short === 'DataFrame') {
+    const match = ROWS_X_COLUMNS.exec(raw);
+    if (match?.[1] !== undefined && match[2] !== undefined) {
+      return `(${match[1].replace(/,/g, '')}, ${match[2]})`;
+    }
+    const rows = summary === undefined ? undefined : INFO_ROWS.exec(summary)?.[1];
+    const columnMatch = summary === undefined ? null : INFO_COLUMNS.exec(summary);
+    const columns = columnMatch?.[1] ?? columnMatch?.[2];
+    return rows !== undefined && columns !== undefined
+      ? `(${rows.replace(/,/g, '')}, ${columns.replace(/,/g, '')})`
+      : '';
+  }
+  if (isConstant(type, 0) && short !== 'str') {
+    return '';
+  }
+  const size = variableSize(type, raw, indexedChildrenCount);
+  if (size === 0) {
+    return '';
+  }
+  return short === 'Series' ? `(${size},)` : String(size);
 }
 
 const DATA_VIEWER_TYPES = new Set([

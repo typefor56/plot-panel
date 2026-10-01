@@ -12,6 +12,7 @@ import type { VariablesGrouping, VariablesSorting } from './categorize';
 const GROUPING_KEY = 'plotPanel.variablesGrouping';
 const SORTING_KEY = 'plotPanel.variablesSorting';
 const NAME_WIDTH_KEY = 'plotPanel.variablesNameWidth';
+const TYPE_WIDTH_KEY = 'plotPanel.variablesTypeWidth';
 
 /** Bounds for a stored column width; anything else falls back to auto-sizing. */
 const MIN_NAME_WIDTH = 40;
@@ -41,6 +42,7 @@ export class VariablesOptions {
   private currentGrouping: VariablesGrouping;
   private currentSorting: VariablesSorting;
   private currentNameWidth: number | undefined;
+  private currentTypeWidth: number | undefined;
   private readonly listeners = new Set<() => void>();
 
   constructor(private readonly memento: vscode.Memento) {
@@ -50,6 +52,8 @@ export class VariablesOptions {
     this.currentSorting = isSorting(storedSorting) ? storedSorting : 'name';
     const storedWidth: unknown = memento.get(NAME_WIDTH_KEY);
     this.currentNameWidth = isNameWidth(storedWidth) ? storedWidth : undefined;
+    const storedTypeWidth: unknown = memento.get(TYPE_WIDTH_KEY);
+    this.currentTypeWidth = isNameWidth(storedTypeWidth) ? storedTypeWidth : undefined;
   }
 
   /**
@@ -69,6 +73,20 @@ export class VariablesOptions {
     }
     this.currentNameWidth = next;
     void this.memento.update(NAME_WIDTH_KEY, next);
+  }
+
+  /** Same as nameWidth, for the type column (the value|type splitter). */
+  get typeWidth(): number | undefined {
+    return this.currentTypeWidth;
+  }
+
+  setTypeWidth(width: number | undefined): void {
+    const next = isNameWidth(width) ? width : undefined;
+    if (next === this.currentTypeWidth) {
+      return;
+    }
+    this.currentTypeWidth = next;
+    void this.memento.update(TYPE_WIDTH_KEY, next);
   }
 
   get grouping(): VariablesGrouping {

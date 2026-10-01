@@ -60,14 +60,22 @@ body {
   overflow-y: auto;
 }
 
-body.busy #list {
-  opacity: 0.6;
+/* Busy = a thin progress line under the filter. Never dim the scroller
+   itself: an opacity toggled on #list, in the same task as the full rebuild
+   after a Run All, left Chromium with rows unpainted until the next scroll. */
+#filter-row {
+  border-bottom: 2px solid transparent;
+}
+
+body.busy #filter-row {
+  border-bottom-color: var(--vscode-progressBar-background);
 }
 
 /* The one and only column separator: a single absolutely positioned element
    spanning the whole list, so it is a continuous straight line whatever the
    rows contain. It doubles as the drag handle. */
-#splitter {
+#splitter,
+#type-splitter {
   position: absolute;
   top: 0;
   bottom: 0;
@@ -79,7 +87,21 @@ body.busy #list {
   touch-action: none;
 }
 
-#splitter::before {
+/* The value|type separator, placed from the right like the tracks it
+   divides: the list's inner width (scrollbar excluded) minus the viewer,
+   size and type tracks. */
+#type-splitter {
+  left: calc(
+    var(--content-width, 100%) - 22px - var(--size-width, 0px) - var(--type-width, 0px)
+  );
+}
+
+#type-splitter[hidden] {
+  display: none;
+}
+
+#splitter::before,
+#type-splitter::before {
   content: '';
   position: absolute;
   top: 0;
@@ -91,13 +113,17 @@ body.busy #list {
 
 #splitter:hover::before,
 #splitter.dragging::before,
-#splitter:focus-visible::before {
+#splitter:focus-visible::before,
+#type-splitter:hover::before,
+#type-splitter.dragging::before,
+#type-splitter:focus-visible::before {
   left: 3px;
   width: 2px;
   background-color: var(--vscode-focusBorder);
 }
 
-#splitter:focus-visible {
+#splitter:focus-visible,
+#type-splitter:focus-visible {
   outline: none;
 }
 
@@ -133,11 +159,16 @@ body.busy #list {
   z-index: -1;
 }
 
-/* Three shared tracks. Indentation lives inside the first cell, never on the
-   row, so deeper levels never push the boundary sideways. */
+/* Five shared tracks: name | value (constants only) | type | size | viewer
+   button. Type and size widths are measured once per listing (variables.js),
+   so they line up on every row like the name column does. Indentation lives
+   inside the first cell, never on the row, so deeper levels never push the
+   boundary sideways. */
 .var-row {
   display: grid;
-  grid-template-columns: var(--name-width) minmax(0, 1fr) auto;
+  grid-template-columns:
+    var(--name-width) minmax(0, 1fr) var(--type-width, auto) var(--size-width, auto)
+    22px;
   align-items: center;
   padding: 2px 0;
   border-top: 1px solid var(--vscode-widget-border, transparent);
@@ -206,20 +237,29 @@ body.busy #list {
 .var-tail {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding-left: 8px;
-  padding-right: 8px;
+  justify-content: center;
   min-width: 0;
 }
 
-.var-hint {
-  max-width: 16ch;
+.var-hint,
+.var-size {
+  box-sizing: border-box;
+  padding: 0 6px;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   text-align: right;
   font-size: 0.9em;
   color: var(--vscode-descriptionForeground);
+}
+
+.var-hint {
+  text-align: left;
+}
+
+.var-size {
+  font-variant-numeric: tabular-nums;
 }
 
 .viewer-button {
@@ -231,13 +271,15 @@ body.busy #list {
   background: transparent;
   border: none;
   color: inherit;
-  opacity: 0;
+  opacity: 0.85;
   cursor: pointer;
 }
 
-.var-row:hover .viewer-button,
+/* Always visible: with values hidden, this is the way into the data. */
+.viewer-button:hover,
 .viewer-button:focus-visible {
-  opacity: 0.9;
+  opacity: 1;
+  color: var(--vscode-textLink-foreground);
 }
 
 .viewer-button:focus-visible {

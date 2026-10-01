@@ -1,11 +1,13 @@
 import { randomBytes } from 'node:crypto';
 import * as vscode from 'vscode';
 import {
+  categorize,
   dataViewerType,
   formatVariableValue,
+  isConstant,
   organizeVariables,
+  sizeLabel,
   typeHint,
-  variableCount,
   variableSize,
 } from './categorize';
 import type { ChildVariable } from './inspect';
@@ -61,8 +63,14 @@ type ToVariablesWebviewMessage =
       readonly target: string | undefined;
       /** Pinned name-column width; undefined lets the view auto-size it. */
       readonly nameWidth: number | undefined;
+      /** Pinned type-column width (value|type splitter); undefined = auto. */
+      readonly typeWidth: number | undefined;
     }
-  | { readonly type: 'nameWidth'; readonly width: number | undefined }
+  | {
+      readonly type: 'columnWidths';
+      readonly nameWidth: number | undefined;
+      readonly typeWidth: number | undefined;
+    }
   | { readonly type: 'busy'; readonly busy: boolean }
   | {
       readonly type: 'children';
@@ -83,7 +91,8 @@ type FromVariablesWebviewMessage =
       readonly expression: string;
     }
   | { readonly type: 'openViewer'; readonly expression: string; readonly viewerType: string }
-  | { readonly type: 'setNameWidth'; readonly width: number };
+  | { readonly type: 'setNameWidth'; readonly width: number }
+  | { readonly type: 'setTypeWidth'; readonly width: number };
 
 /**
  * The exact argument shape jupyter.showDataViewer forwards, untouched, to
@@ -137,14 +146,20 @@ function childRow(child: ChildVariable): VariableRow {
  * the only place left to find them on stable VS Code — which means their
  * value is the signature, not a live object.
  */
-function definedInCells(notebook: vscode.NotebookDocument): readonly KernelVariable[] {
+function definedInCells(
+  notebook: vscode.NotebookDocument,
+  since: number | undefined,
+): readonly KernelVariable[] {
   const executed = notebook
     .getCells()
     .filter(
       (cell) =>
         cell.kind === vscode.NotebookCellKind.Code &&
         cell.document.languageId === 'python' &&
-        cell.executionSummary?.executionOrder !== undefined,
+        cell.executionSummary?.executionOrder !== undefined &&
+        // After Clear Variables only cells run since count: execution counts
+        // restart at 1 with the kernel, so the end time is what tells.
+        (since === undefined || (cell.executionSummary.timing?.endTime ?? 0) > since),
     )
     .sort(
       (left, right) =>
@@ -203,6 +218,8 @@ export class VariablesViewProvider implements vscode.WebviewViewProvider, vscode
   private view: vscode.WebviewView | undefined;
   private target: VariablesTarget | undefined;
   private refreshTimer: ReturnType<typeof setTimeout> | undefined;
+  /** When Clear Variables last restarted each notebook's kernel (by URI). */
+  private readonly clearedAt = new Map<string, number>();
   private inFlight = false;
   private queued = false;
   /** An execution happened while the view was hidden or auto-refresh was off. */
@@ -311,6 +328,7 @@ export class VariablesViewProvider implements vscode.WebviewViewProvider, vscode
       vscode.workspace.onDidCloseNotebookDocument((notebook) => {
         const key = notebook.uri.toString();
         this.recency.delete(key);
+        this.clearedAt.delete(key);
         this.snapshots.delete(key);
         if (this.targets(notebook)) {
           this.switchTo(undefined);
@@ -507,6 +525,7 @@ export class VariablesViewProvider implements vscode.WebviewViewProvider, vscode
         sections: [],
         target: undefined,
         nameWidth: this.options.nameWidth,
+        typeWidth: this.options.typeWidth,
       });
       return;
     }
@@ -556,7 +575,7 @@ export class VariablesViewProvider implements vscode.WebviewViewProvider, vscode
     const live = new Set(variables.map((variable) => variable.name));
     return [
       ...variables,
-      ...definedInCells(notebook).filter((definition) => !live.has(definition.name)),
+      ...definedInCells(notebook, this.clearedAt.get(notebook.uri.toString())).filter((definition) => !live.has(definition.name)),
     ];
   }
 
@@ -626,6 +645,7 @@ export class VariablesViewProvider implements vscode.WebviewViewProvider, vscode
       sections,
       target: this.targetName,
       nameWidth: this.options.nameWidth,
+      typeWidth: this.options.typeWidth,
     });
   }
 
@@ -638,19 +658,30 @@ export class VariablesViewProvider implements vscode.WebviewViewProvider, vscode
           summary: variable.summary,
           expression: variable.expression,
         });
-    const count = variableCount(variable.type, variable.value, variable.indexedChildrenCount);
+    const size = variableSize(variable.type, variable.value, variable.indexedChildrenCount);
+    const category = categorize(variable.type);
+    // Only constants show a value; a definition shows its signature.
+    const showValue =
+      isConstant(variable.type, size) || category === 'functions' || category === 'classes';
     return {
       name: variable.name,
       type: variable.type,
-      size: variableSize(variable.type, variable.value, variable.indexedChildrenCount),
+      size,
       changedAt,
       row: {
         name: variable.name,
         // A value that moved in this listing is worth pointing out, which is
         // what the Recent sort already tracks.
         ...(this.currentRunChanged.has(variable.name) ? { changed: true } : {}),
-        value: truncate(formatVariableValue(variable.type, variable.value)),
-        typeHint: typeHint(variable.type, count),
+        value: showValue ? truncate(formatVariableValue(variable.type, variable.value)) : '',
+        typeHint: typeHint(variable.type, 0),
+        fullType: variable.type,
+        size: sizeLabel(
+          variable.type,
+          variable.value,
+          variable.indexedChildrenCount,
+          variable.summary,
+        ),
         expandable,
         expression: variable.expression,
         nodeId: variable.name,
@@ -674,6 +705,9 @@ export class VariablesViewProvider implements vscode.WebviewViewProvider, vscode
         break;
       case 'setNameWidth':
         this.options.setNameWidth(message.width);
+        break;
+      case 'setTypeWidth':
+        this.options.setTypeWidth(message.width);
         break;
     }
   }
@@ -711,15 +745,17 @@ export class VariablesViewProvider implements vscode.WebviewViewProvider, vscode
       void vscode.window.showErrorMessage('Plot Panel: could not restart the notebook kernel.');
       return;
     }
+    this.clearedAt.set(target.notebook.uri.toString(), Date.now());
     this.recency.delete(targetKey(target));
     this.fetchedAt.delete(targetKey(target));
     this.scheduleRefresh(REFRESH_DEBOUNCE_MS);
   }
 
-  /** Drop the pinned column width so it auto-sizes to the longest name again. */
+  /** Drop the pinned column widths so they auto-size to their content again. */
   resetColumnWidth(): void {
     this.options.setNameWidth(undefined);
-    this.post({ type: 'nameWidth', width: undefined });
+    this.options.setTypeWidth(undefined);
+    this.post({ type: 'columnWidths', nameWidth: undefined, typeWidth: undefined });
   }
 
   private async openViewer(expression: string, viewerType: string): Promise<void> {
@@ -828,6 +864,8 @@ export class VariablesViewProvider implements vscode.WebviewViewProvider, vscode
     <div id="list" role="tree" aria-label="Kernel variables"></div>
     <div id="splitter" role="separator" aria-orientation="vertical"
          aria-label="Resize the name column" tabindex="0"></div>
+    <div id="type-splitter" role="separator" aria-orientation="vertical"
+         aria-label="Resize the type column" tabindex="0"></div>
   </div>
   <span id="measure" aria-hidden="true"></span>
   <p id="empty" hidden></p>

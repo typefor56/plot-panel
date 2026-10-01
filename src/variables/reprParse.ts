@@ -485,3 +485,73 @@ export function elideItems(
   }
   return [...head, '…', ...tail].join(', ');
 }
+
+/**
+ * numpy-style shape of an ndarray from its repr: "(10,)", "(100, 100)",
+ * "(2, 3, 10)". numpy 2 writes `shape=(…)` itself into every summarized repr;
+ * a repr shown in full is counted, walking the first element down each axis.
+ * `count` is Jupyter's len(), i.e. the first axis, exact even when the repr
+ * was elided. An axis that cannot be counted (numpy 1.x summaries) shows "…"
+ * rather than a guess. undefined = not an array repr.
+ */
+export function ndarrayShape(raw: string, count: number): string | undefined {
+  const explicit = /shape=\(([^)]*)\)/.exec(raw);
+  if (explicit?.[1] !== undefined) {
+    const dims = explicit[1].trim();
+    return dims.includes(',') ? `(${dims})` : `(${dims},)`;
+  }
+  let body = raw.trim();
+  if (body.startsWith('array(')) {
+    body = body.slice('array('.length);
+  }
+  if (!body.startsWith('[')) {
+    return undefined;
+  }
+  // Per axis: elements counted in the first list reached at that depth,
+  // whether that list is still open, and whether numpy elided part of it.
+  const counts: number[] = [];
+  const open: boolean[] = [];
+  const elided: boolean[] = [];
+  let depth = 0;
+  let quote: string | undefined;
+  for (let i = 0; i < body.length && !(depth === 0 && i > 0); i++) {
+    const ch = body[i];
+    if (quote !== undefined) {
+      if (ch === '\\') {
+        i++;
+      } else if (ch === quote) {
+        quote = undefined;
+      }
+      continue;
+    }
+    if (ch === "'" || ch === '"') {
+      quote = ch;
+    } else if (ch === '[') {
+      if (counts[depth] === undefined) {
+        counts[depth] = body[i + 1] === ']' ? 0 : 1;
+        open[depth] = true;
+      }
+      depth++;
+    } else if (ch === ']') {
+      depth--;
+      open[depth] = false;
+    } else if (ch === ',' && open[depth - 1] === true) {
+      counts[depth - 1] = (counts[depth - 1] ?? 0) + 1;
+    } else if (body.startsWith('...', i) && open[depth - 1] === true) {
+      elided[depth - 1] = true;
+    }
+  }
+  // An elision anywhere (numpy's or a cut repr) makes the first-axis count
+  // unreliable; Jupyter's len() is not.
+  const cut = body.includes('...');
+  const dims = counts.map((value, axis) => {
+    if (axis === 0 && (cut || elided[0] === true)) {
+      return count > 0 ? String(count) : '…';
+    }
+    return elided[axis] === true ? '…' : String(value);
+  });
+  if (dims.length === 0) {
+    return undefined;
+  }
+  return dims.length === 1 ? `(${dims[0]},)` : `(${dims.join(', ')})`;
+}

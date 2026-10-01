@@ -3,11 +3,13 @@ import {
   categorize,
   dataViewerType,
   formatVariableValue,
+  isConstant,
   organizeVariables,
+  sizeLabel,
   typeHint,
-  variableCount,
   variableSize,
 } from '../variables/categorize';
+import { ndarrayShape } from '../variables/reprParse';
 import { INSPECT_SENTINEL, buildInspectCode, parseInspectReply } from '../variables/inspect';
 import { parseDataFrameSummary } from '../variables/summary';
 import * as fx from './reprFixtures';
@@ -67,7 +69,7 @@ suite('variables: categorization', () => {
     assert.strictEqual(typeHint('polars.dataframe.frame.DataFrame', 0), 'pl.DataFrame');
     assert.strictEqual(typeHint('np.ndarray', 0), 'np.ndarray');
     assert.strictEqual(typeHint('scipy.stats._kde.gaussian_kde', 0), 'gaussian_kde');
-    assert.strictEqual(typeHint('numpy.int64', 245), 'int64 (245)');
+    assert.strictEqual(typeHint('numpy.int64', 245), 'np.int64 (245)');
   });
 
   test('values render Positron-style: DataFrame shape only, elided items, one line', () => {
@@ -108,12 +110,6 @@ suite('variables: categorization', () => {
     assert.strictEqual(variableSize('int', '50', 0), 0);
   });
 
-  test('variableCount feeds the hint; DataFrames and strings stay bare', () => {
-    assert.strictEqual(variableCount('pandas.core.frame.DataFrame', fx.DF_LARGE, 0), 0);
-    assert.strictEqual(variableCount('str', "'x'", 0), 0);
-    assert.strictEqual(variableCount('pandas.core.series.Series', fx.S_DATETIME, 0), 200);
-    assert.strictEqual(variableCount('dict', fx.DICT_SMALL, 0), 4);
-  });
 
   test('dataViewerType maps to the viewers’ exact dataTypes members', () => {
     assert.strictEqual(dataViewerType('pandas.core.frame.DataFrame'), 'DataFrame');
@@ -262,5 +258,71 @@ suite('variables: kernel inspection protocol', () => {
     assert.deepStrictEqual(parseInspectReply(`${INSPECT_SENTINEL}${JSON.stringify(mixed)}`), [
       mixed[0],
     ]);
+  });
+});
+
+suite('variables: value and size columns', () => {
+  test('only constants show their value', () => {
+    for (const type of ['float', 'int', 'str', 'bool', 'NoneType', 'numpy.float64', 'int64']) {
+      assert.strictEqual(isConstant(type, 0), true, type);
+    }
+    for (const type of ['list', 'numpy.ndarray', 'pandas.core.frame.DataFrame', 'dict']) {
+      assert.strictEqual(isConstant(type, 3), false, type);
+    }
+    assert.strictEqual(isConstant('numeric', 1), true, 'R scalar');
+    assert.strictEqual(isConstant('numeric', 10), false, 'R vector');
+  });
+
+  test('size is a numpy-style shape for arrays and tables, else a length', () => {
+    assert.match(sizeLabel('pandas.core.frame.DataFrame', fx.DF_LARGE, 0), /^\(\d+, \d+\)$/);
+    const info =
+      "<class 'pandas.core.frame.DataFrame'>\nRangeIndex: 2 entries, 0 to 1\n" +
+      'Data columns (total 2 columns):\n';
+    assert.strictEqual(sizeLabel('pandas.core.frame.DataFrame', '   a  b\n0  1  3', 0, info), '(2, 2)');
+    assert.strictEqual(sizeLabel('numpy.ndarray', 'array([0., 1., 2.])', 3), '(3,)');
+    assert.strictEqual(sizeLabel('list', '[1, 2]', 15), '15');
+    assert.strictEqual(sizeLabel('dict', fx.DICT_SMALL, 0), '4');
+    assert.strictEqual(sizeLabel('float', '2.0', 0), '');
+    assert.strictEqual(sizeLabel('str', "'abc'", 0), '3');
+  });
+
+  test('numpy scalars: the number as value, np.<type> as type', () => {
+    assert.strictEqual(formatVariableValue('numpy.int64', 'np.int64(8)'), '8');
+    assert.strictEqual(formatVariableValue('numpy.float64', 'np.float64(7.44)'), '7.44');
+    assert.strictEqual(
+      formatVariableValue('list', '[np.float64(3.25), np.float64(3.29)]'),
+      '[3.25, 3.29]',
+    );
+    assert.strictEqual(typeHint('numpy.int64', 0), 'np.int64');
+    assert.strictEqual(typeHint('numpy.float64', 0), 'np.float64');
+    assert.strictEqual(typeHint('float', 0), 'float');
+  });
+
+  test('ndarray shapes, from reprs produced by numpy 2', () => {
+    const cases: readonly (readonly [string, number, string])[] = [
+      ['array([0., 1., 2., 3., 4., 5., 6., 7., 8., 9.])', 10, '(10,)'],
+      ['array([[0., 0., 0.],\n       [0., 0., 0.]])', 2, '(2, 3)'],
+      [
+        'array([[[0., 0., 0., 0.],\n        [0., 0., 0., 0.],\n        [0., 0., 0., 0.]],\n\n' +
+          '       [[0., 0., 0., 0.],\n        [0., 0., 0., 0.],\n        [0., 0., 0., 0.]]])',
+        2,
+        '(2, 3, 4)',
+      ],
+      [
+        'array([[0., 0., 0., ..., 0., 0., 0.],\n       ...,\n       [0., 0., 0., ..., 0., 0., 0.]], shape=(100, 100))',
+        100,
+        '(100, 100)',
+      ],
+      ['array([], shape=(5, 0), dtype=float64)', 5, '(5, 0)'],
+      ["array(['a, b', 'c]'], dtype='<U4')", 2, '(2,)'],
+      ['array([], dtype=float64)', 0, '(0,)'],
+      // numpy 1.x summaries carry no shape: count the first axis, never guess the rest.
+      ['array([[0., 0., ..., 0.],\n       ...,\n       [0., 0., ..., 0.]])', 100, '(100, …)'],
+      ['array([[1, 2, 3],\n       ...,\n       [7, 8, 9]])', 1000, '(1000, 3)'],
+    ];
+    for (const [raw, count, expected] of cases) {
+      assert.strictEqual(ndarrayShape(raw, count), expected, raw);
+    }
+    assert.strictEqual(ndarrayShape('<object at 0x1>', 0), undefined);
   });
 });

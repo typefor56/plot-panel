@@ -43,6 +43,10 @@ export interface PreviewRow {
   readonly changed?: boolean;
   readonly value: string;
   readonly typeHint: string;
+  /** Fully qualified type, shown on hover when the hint is shortened or cut. */
+  readonly fullType?: string;
+  /** Size column of a top-level row ("100 × 3", "15"); children leave it out. */
+  readonly size?: string;
   readonly expandable: boolean;
   readonly expression: string;
   readonly nodeId: string;

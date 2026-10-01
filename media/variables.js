@@ -7,8 +7,10 @@
 // state handled here. Children are fetched on demand through expand requests
 // and cached in the DOM until the next full state.
 //
-// Layout doctrine: every row is a CSS grid over the same three tracks, the
-// first one sized by --name-width. Indentation is applied inside the first
+// Layout doctrine: every row is a CSS grid over the same five tracks (name,
+// value, type, size, viewer button), the first one sized by --name-width and
+// type/size by the longest top-level text, so every column is one straight
+// line. Indentation is applied inside the first
 // cell, so the name|value boundary is the same vertical line on every row at
 // every depth — that line is drawn (and dragged) by #splitter.
 (function () {
@@ -20,6 +22,7 @@
   const list = document.getElementById('list');
   const listWrap = document.getElementById('list-wrap');
   const splitter = document.getElementById('splitter');
+  const typeSplitter = document.getElementById('type-splitter');
   const measure = document.getElementById('measure');
   const empty = document.getElementById('empty');
 
@@ -35,10 +38,25 @@
   let sections = [];
   /** Width chosen by the user, or undefined to keep auto-sizing to content. */
   let pinnedWidth = undefined;
+  /** Same for the type column, set by the value|type splitter. */
+  let pinnedTypeWidth = undefined;
+  /** Current type and size track widths, in px, for the splitter math. */
+  let typeWidth = 0;
+  let sizeWidth = 0;
   /** Names currently shown at top level, for the auto measurement. */
   let topLevelNames = [];
+  /** Type and size texts shown at top level, sizing their shared tracks. */
+  let topLevelTypes = [];
+  let topLevelSizes = [];
 
   const MIN_NAME_WIDTH = 60;
+  /** Type names past this are elided: the column must not eat the row. */
+  const MAX_TYPE_WIDTH = 150;
+  /** Horizontal padding of the type and size cells. */
+  const CELL_CHROME = 12;
+  /** The viewer-button track, last in every row (see variables.css). */
+  const VIEWER_TRACK = 22;
+  const MIN_TYPE_WIDTH = 30;
   /** Chevron + gaps + the value cell's own padding. */
   const NAME_CHROME = 34;
 
@@ -52,6 +70,49 @@
     document.body.style.setProperty('--name-width', clampWidth(width) + 'px');
   }
 
+  function widestOf(texts) {
+    let widest = 0;
+    for (const text of texts) {
+      measure.textContent = text;
+      widest = Math.max(widest, measure.offsetWidth);
+    }
+    return widest;
+  }
+
+  /** Right edge of the type track, measured from the list's left edge. */
+  function typeTrackEnd() {
+    return list.clientWidth - VIEWER_TRACK - sizeWidth;
+  }
+
+  function applyTypeWidth(width) {
+    const nameWidth = Number.parseInt(
+      getComputedStyle(document.body).getPropertyValue('--name-width'),
+      10,
+    );
+    const max = Math.max(MIN_TYPE_WIDTH, typeTrackEnd() - nameWidth - 30);
+    typeWidth = Math.min(Math.max(Math.round(width), MIN_TYPE_WIDTH), max);
+    document.body.style.setProperty('--type-width', typeWidth + 'px');
+  }
+
+  /**
+   * Size fits its longest top-level text; type too, unless the user dragged
+   * the value|type splitter. The list's inner width is published so the
+   * splitter, positioned from the right, tracks the scrollbar.
+   */
+  function sizeInfoColumns() {
+    document.body.style.setProperty('--content-width', list.clientWidth + 'px');
+    const sizes = widestOf(topLevelSizes);
+    sizeWidth = sizes === 0 ? 0 : sizes + CELL_CHROME;
+    document.body.style.setProperty('--size-width', sizeWidth + 'px');
+    const types = widestOf(topLevelTypes);
+    typeSplitter.hidden = types === 0;
+    if (pinnedTypeWidth !== undefined) {
+      applyTypeWidth(pinnedTypeWidth);
+    } else {
+      applyTypeWidth(types === 0 ? 0 : Math.min(types, MAX_TYPE_WIDTH) + CELL_CHROME);
+    }
+  }
+
   /**
    * Default width = the longest name, so no value is pushed out of alignment.
    * Only top-level names count: children are lazy and indenting the column to
@@ -62,12 +123,7 @@
       applyWidth(pinnedWidth);
       return;
     }
-    let widest = 0;
-    for (const name of topLevelNames) {
-      measure.textContent = name;
-      widest = Math.max(widest, measure.offsetWidth);
-    }
-    applyWidth(widest + NAME_CHROME);
+    applyWidth(widestOf(topLevelNames) + NAME_CHROME);
   }
 
   function makeNote(text) {
@@ -130,7 +186,7 @@
     return svg;
   }
 
-  /** The three grid cells shared by every row shape. */
+  /** The five grid cells shared by every row shape. */
   function makeCells(line, level) {
     line.style.setProperty('--level', String(level));
     const nameCell = document.createElement('span');
@@ -143,12 +199,18 @@
     nameCell.appendChild(name);
     const value = document.createElement('span');
     value.className = 'var-value';
+    const type = document.createElement('span');
+    type.className = 'var-hint';
+    const size = document.createElement('span');
+    size.className = 'var-size';
     const tail = document.createElement('span');
     tail.className = 'var-tail';
     line.appendChild(nameCell);
     line.appendChild(value);
+    line.appendChild(type);
+    line.appendChild(size);
     line.appendChild(tail);
-    return { twistie, name, value, tail };
+    return { twistie, name, value, type, size, tail };
   }
 
   function makeRow(row, level) {
@@ -195,11 +257,12 @@
       cells.tail.appendChild(viewer);
     }
 
-    const hint = document.createElement('span');
-    hint.className = 'var-hint';
-    hint.textContent = row.typeHint;
-    hint.title = row.typeHint;
-    cells.tail.appendChild(hint);
+    cells.type.textContent = row.typeHint;
+    cells.type.title =
+      typeof row.fullType === 'string' && row.fullType.length > 0 ? row.fullType : row.typeHint;
+    if (typeof row.size === 'string') {
+      cells.size.textContent = row.size;
+    }
 
     container.appendChild(line);
 
@@ -315,6 +378,8 @@
     sections = [];
     totalRows = 0;
     topLevelNames = [];
+    topLevelTypes = [];
+    topLevelSizes = [];
     for (const stateSection of stateSections) {
       const section = makeSection(stateSection.label);
       sections.push(section);
@@ -327,71 +392,109 @@
         if (measurable) {
           topLevelNames.push(String(row.name));
         }
+        topLevelTypes.push(row.typeHint);
+        if (typeof row.size === 'string' && row.size !== '') {
+          topLevelSizes.push(row.size);
+        }
         totalRows++;
       }
     }
     autoSizeNameColumn();
+    sizeInfoColumns();
     applyFilter();
+    // ponytail: a full rebuild of a long list could stay partly unpainted in
+    // the webview until a scroll; re-assigning scrollTop on the next frame
+    // forces that repaint. Drop it if Chromium stops needing it.
+    requestAnimationFrame(() => {
+      list.scrollTop = list.scrollTop;
+    });
   }
 
-  // --- the draggable column separator -------------------------------------
+  // --- the draggable column separators -----------------------------------
 
-  let dragging = false;
-
-  splitter.addEventListener('pointerdown', (event) => {
-    dragging = true;
-    splitter.classList.add('dragging');
-    splitter.setPointerCapture(event.pointerId);
-    event.preventDefault();
-  });
-
-  splitter.addEventListener('pointermove', (event) => {
-    if (!dragging) {
-      return;
-    }
-    applyWidth(event.clientX - listWrap.getBoundingClientRect().left);
-  });
-
-  function endDrag(event) {
-    if (!dragging) {
-      return;
-    }
-    dragging = false;
-    splitter.classList.remove('dragging');
-    if (splitter.hasPointerCapture(event.pointerId)) {
-      splitter.releasePointerCapture(event.pointerId);
-    }
-    pinnedWidth = Number.parseInt(
-      getComputedStyle(document.body).getPropertyValue('--name-width'),
-      10,
-    );
-    vscode.postMessage({ type: 'setNameWidth', width: pinnedWidth });
+  function currentNameWidth() {
+    return Number.parseInt(getComputedStyle(document.body).getPropertyValue('--name-width'), 10);
   }
 
-  splitter.addEventListener('pointerup', endDrag);
-  splitter.addEventListener('pointercancel', endDrag);
+  /**
+   * Pointer and keyboard dragging for one separator. `move` takes the
+   * pointer's x relative to the list; `commit` persists the result.
+   */
+  function makeDraggable(handle, move, nudge, commit) {
+    let dragging = false;
+    handle.addEventListener('pointerdown', (event) => {
+      dragging = true;
+      handle.classList.add('dragging');
+      handle.setPointerCapture(event.pointerId);
+      event.preventDefault();
+    });
+    handle.addEventListener('pointermove', (event) => {
+      if (dragging) {
+        move(event.clientX - listWrap.getBoundingClientRect().left);
+      }
+    });
+    const end = (event) => {
+      if (!dragging) {
+        return;
+      }
+      dragging = false;
+      handle.classList.remove('dragging');
+      if (handle.hasPointerCapture(event.pointerId)) {
+        handle.releasePointerCapture(event.pointerId);
+      }
+      commit();
+    };
+    handle.addEventListener('pointerup', end);
+    handle.addEventListener('pointercancel', end);
+    handle.addEventListener('keydown', (event) => {
+      const step = event.key === 'ArrowLeft' ? -8 : event.key === 'ArrowRight' ? 8 : 0;
+      if (step !== 0) {
+        nudge(step);
+        commit();
+        event.preventDefault();
+      }
+    });
+  }
 
-  splitter.addEventListener('keydown', (event) => {
-    const step = event.key === 'ArrowLeft' ? -8 : event.key === 'ArrowRight' ? 8 : 0;
-    if (step === 0) {
-      return;
-    }
-    const current = Number.parseInt(
-      getComputedStyle(document.body).getPropertyValue('--name-width'),
-      10,
-    );
-    applyWidth(current + step);
-    pinnedWidth = Number.parseInt(
-      getComputedStyle(document.body).getPropertyValue('--name-width'),
-      10,
-    );
-    vscode.postMessage({ type: 'setNameWidth', width: pinnedWidth });
-    event.preventDefault();
+  makeDraggable(
+    splitter,
+    (x) => applyWidth(x),
+    (step) => applyWidth(currentNameWidth() + step),
+    () => {
+      pinnedWidth = currentNameWidth();
+      vscode.postMessage({ type: 'setNameWidth', width: pinnedWidth });
+    },
+  );
+
+  // Double-click fits the type column to its longest name, however long.
+  typeSplitter.addEventListener('dblclick', () => {
+    applyTypeWidth(widestOf(topLevelTypes) + CELL_CHROME);
+    pinnedTypeWidth = typeWidth;
+    vscode.postMessage({ type: 'setTypeWidth', width: pinnedTypeWidth });
   });
+  typeSplitter.title = 'Drag to resize the type column; double-click to fit the longest type';
+
+  // Dragging right widens the value column, i.e. narrows the type column.
+  makeDraggable(
+    typeSplitter,
+    (x) => applyTypeWidth(typeTrackEnd() - x),
+    (step) => applyTypeWidth(typeWidth - step),
+    () => {
+      pinnedTypeWidth = typeWidth;
+      vscode.postMessage({ type: 'setTypeWidth', width: pinnedTypeWidth });
+    },
+  );
 
   window.addEventListener('resize', () => {
     autoSizeNameColumn();
+    sizeInfoColumns();
   });
+
+  // The scrollbar appearing or going changes the inner width without a
+  // window resize; the type splitter is placed from that width.
+  new ResizeObserver(() => {
+    document.body.style.setProperty('--content-width', list.clientWidth + 'px');
+  }).observe(list);
 
   window.addEventListener('message', (event) => {
     const message = event.data;
@@ -399,12 +502,15 @@
       case 'state':
         targetLabel = message.target;
         pinnedWidth = typeof message.nameWidth === 'number' ? message.nameWidth : undefined;
+        pinnedTypeWidth = typeof message.typeWidth === 'number' ? message.typeWidth : undefined;
         renderState(message.sections);
         document.body.classList.remove('busy');
         break;
-      case 'nameWidth':
-        pinnedWidth = typeof message.width === 'number' ? message.width : undefined;
+      case 'columnWidths':
+        pinnedWidth = typeof message.nameWidth === 'number' ? message.nameWidth : undefined;
+        pinnedTypeWidth = typeof message.typeWidth === 'number' ? message.typeWidth : undefined;
         autoSizeNameColumn();
+        sizeInfoColumns();
         break;
       case 'busy':
         document.body.classList.toggle('busy', message.busy === true);
