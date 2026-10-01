@@ -133,12 +133,16 @@ Everything is on the title bars, and all of it is in the command palette under
 (`Ctrl+Enter` in a Python file), Previous and Next Plot (left and right arrows
 when the pane has focus), and Refresh Variables.
 
-In a notebook or Plot Panel's views, `Ctrl+L` clears the plot history and
-`Ctrl+Shift+L` clears both the plot history and the variables (a notebook
-kernel restart, confirmed first). Elsewhere both keys keep their editor
-meaning. VSCodeVim binds `Ctrl+L` too: if it wins inside cells, set
-`"vim.handleKeys": { "<C-l>": false }` or rebind Clear Plot History in your
-own keybindings.
+Clearing has no key by default, so none of yours is taken over. To give it
+one, open *Keyboard Shortcuts* (`Ctrl+K Ctrl+S`) and bind **Plot Panel: Clear
+Plot History** and **Plot Panel: Clear Plot History and Variables** (the
+latter asks before restarting a notebook's kernel), for instance in
+`keybindings.json`:
+
+```json
+{ "key": "ctrl+l", "command": "plotPanel.clearHistory", "when": "!terminalFocus" },
+{ "key": "ctrl+shift+l", "command": "plotPanel.clearAll", "when": "!terminalFocus" }
+```
 
 ## Trademarks
 

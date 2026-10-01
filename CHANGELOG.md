@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.1
+
+- No default keys for clearing: Ctrl+L and Ctrl+Shift+L keep their editor
+  meaning. Bind **Clear Plot History** and **Clear Plot History and
+  Variables** in Keyboard Shortcuts if you want keys (the README shows how).
+
 ## 0.2.0
 
 - The plot history reads chronologically: every run adds its figures again,
@@ -11,8 +17,7 @@
   always-visible Data Viewer button.
 - Clear Variables also empties FUNCTIONS and CLASSES, and a notebook just
   reopened no longer lists definitions nothing has run.
-- `Ctrl+L` clears the plot history and `Ctrl+Shift+L` the plots and the
-  variables, in a notebook or Plot Panel's views.
+- A Clear Plot History and Variables command, alongside Clear Plot History.
 - The views open in the secondary sidebar, next to Chat. Requires VS Code
   1.106.
 - Rows of the variables view no longer stay unpainted after a Run All.

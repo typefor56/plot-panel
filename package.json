@@ -2,7 +2,7 @@
   "name": "plot-panel",
   "displayName": "Plot Panel",
   "description": "A data science layout for VS Code: a persistent plots pane with history, a Variables explorer, and an interactive Python or R console in the panel.",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "publisher": "for56",
   "license": "MIT",
   "icon": "media/icon.png",
@@ -622,18 +622,6 @@
         "key": "ctrl+enter",
         "mac": "cmd+enter",
         "when": "editorTextFocus && editorLangId == python && !notebookEditorFocused"
-      },
-      {
-        "command": "plotPanel.clearHistory",
-        "key": "ctrl+l",
-        "mac": "cmd+l",
-        "when": "notebookEditorFocused || focusedView =~ /^plotPanel\\./"
-      },
-      {
-        "command": "plotPanel.clearAll",
-        "key": "ctrl+shift+l",
-        "mac": "cmd+shift+l",
-        "when": "notebookEditorFocused || focusedView =~ /^plotPanel\\./"
       }
     ],
     "configuration": {
