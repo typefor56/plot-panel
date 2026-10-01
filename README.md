@@ -15,8 +15,10 @@ at the bottom of the window.
 
 Figures land there by themselves, from notebooks and from the Interactive
 Window. The current one is shown large, the whole session sits underneath as
-thumbnails, and the strip marks where each run started so you can find the
-figures from a given run without counting.
+thumbnails, and the strip reads like a log: every run adds its figures again,
+even unchanged ones, under a marker, "Run all 3" for a whole notebook or
+"Run 12" for one cell (12 being its execution count), so after several runs
+you still know which figure is new.
 
 The history survives a restart, and each project keeps its own. Open another
 repository and you get a clean strip; come back and your figures are still
@@ -32,16 +34,16 @@ it, or runs it again.
 
 ## The variables view
 
-After a cell finishes, the view lists what the kernel holds. Two columns, name
-and value, with a small type on the right. The line between them is a real
-divider you can drag, and it sizes itself to your longest variable name to start
-with.
+After a cell finishes, the view lists what the kernel holds, in four columns:
+name, value, type and size. Values are shown for constants (`alpha 2.0`,
+`best_D 8` for an `np.int64`); a container shows its type and its size in
+numpy's shape notation, `(10,)`, `(100, 100)`, `(2, 3, 10)`. Two dividers can
+be dragged, name|value and value|type; double-click the second to fit the
+longest type, and hover a type for its full name.
 
 Rows open. A DataFrame opens into its columns, a column into its values, a list
-into its items, a dict into its keys. Values are shown the way you would want to
-read them: a frame as `[444448 rows x 24 columns]`, a list as `[5, 7, 2, …, 9,
-1]` with its length beside it. Anything a data viewer can display gets a grid
-button on hover, which hands it to Data Wrangler if you have that installed.
+into its items, a dict into its keys. Anything a data viewer can display gets a
+grid button, which hands it to Data Wrangler if you have that installed.
 
 You can group by kind or by size, sort by name, size or recency, and filter by
 name. Variables that changed during the last run are marked, so a long Run All
@@ -68,7 +70,7 @@ back into a notebook hands the view back.
 
 ## Requirements
 
-The Jupyter extension, for notebooks and their kernels. The Python extension is
+VS Code 1.106 or later. The Jupyter extension, for notebooks and their kernels. The Python extension is
 optional and used to find your interpreters. R sessions need `Rscript`. IPython,
 if present in the environment you start, is what makes magics work.
 

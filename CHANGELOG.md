@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.2.0
+
+- The plot history reads chronologically: every run adds its figures again,
+  even byte-identical ones (stored once on disk), under a "Run all N" or
+  "Run y" marker.
+- The variables view shows name, value, type and size: values for constants
+  only (numpy scalars unwrapped), sizes in numpy's shape notation, a second
+  resizable divider before the type, the full type on hover, and an
+  always-visible Data Viewer button.
+- Clear Variables also empties FUNCTIONS and CLASSES, and a notebook just
+  reopened no longer lists definitions nothing has run.
+- `Ctrl+L` clears the plot history and `Ctrl+Shift+L` the plots and the
+  variables, in a notebook or Plot Panel's views.
+- The views open in the secondary sidebar, next to Chat. Requires VS Code
+  1.106.
+- Rows of the variables view no longer stay unpainted after a Run All.
+
 ## 0.1.0
 
 First release.
