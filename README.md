@@ -77,11 +77,10 @@ requests, and collects nothing.
 
 ## Getting the side-by-side layout
 
-The two views ship in one container, Variables above Plots. VS Code has no API
-to place a container in the secondary sidebar, so it takes one drag by hand:
-open the secondary sidebar (`Ctrl+Alt+B`, or View, Appearance, Secondary Side
-Bar), then drag the Plots icon from the activity bar into it. The layout is
-remembered afterwards.
+The two views ship in one container, Variables above Plots, that opens in the
+secondary sidebar as a tab next to Chat (`Ctrl+Alt+B`, or View, Appearance,
+Secondary Side Bar, if it is hidden). This needs VS Code 1.106 or later. You can
+still drag the container anywhere else; VS Code remembers where you put it.
 
 ## What it cannot do
 

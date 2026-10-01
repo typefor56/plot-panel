@@ -28,7 +28,7 @@
     "data science"
   ],
   "engines": {
-    "vscode": "^1.90.0"
+    "vscode": "^1.106.0"
   },
   "categories": [
     "Data Science",
@@ -41,7 +41,7 @@
   ],
   "contributes": {
     "viewsContainers": {
-      "activitybar": [
+      "secondarySidebar": [
         {
           "id": "plotPanel",
           "title": "Plots",
@@ -103,7 +103,7 @@
         "command": "plotPanel.clearHistory",
         "title": "Clear Plot History",
         "category": "Plot Panel",
-        "icon": "$(trash)"
+        "icon": "$(clear-all)"
       },
       {
         "command": "plotPanel.copyPlot",
@@ -266,7 +266,7 @@
       },
       {
         "command": "plotPanel.variablesResetColumnWidth",
-        "title": "Reset Variables Column Width",
+        "title": "Reset Variables Column Widths",
         "category": "Plot Panel"
       },
       {

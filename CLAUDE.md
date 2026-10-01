@@ -22,7 +22,8 @@ avec un périmètre Python uniquement.
 | `src/extension.ts` | `activate()` : instancie et câble tous les modules, expose `PlotPanelApi` pour les tests |
 | `src/types.ts` | `PlotEntry` et types partagés |
 | `src/mime.ts` | Choix de la meilleure représentation MIME (vectoriel > bitmap), détection des sorties widget, extensions de fichiers. Pur, sans `vscode` |
-| `src/hash.ts` | Identité de contenu (SHA-256 de mime + octets), clé de déduplication |
+| `src/hash.ts` | `contentId` (SHA-256 de mime + octets, nom du fichier) et `captureId` (identité d'une capture : contenu + cellule + lot) |
+| `src/runs.ts` | `RunTracker` : découpe les exécutions en lots « Run all N » / « Run y » ; `groupIntoRuns` pour les marqueurs de la bande. Pur |
 | `src/history.ts` | Modèle d'historique : ajout/dédup, éviction FIFO au plafond, sémantique de sélection, événements. Pur, sans `vscode` |
 | `src/capture.ts` | Abonnement à `onDidChangeNotebookDocument`, extraction des sorties image + métadonnées de code de la cellule, notification explicite pour les widgets |
 | `src/webviewSession.ts` | `PlotWebviewSession` : tout le per-webview (squelette CSP à nonce, handshake `ready`→`state`, protocole, copie), partagé entre vue latérale et panneaux ; modes `gallery`/`single` |
@@ -81,11 +82,33 @@ Toute violation est un échec du projet, pas un compromis acceptable :
 
 ## Décisions tranchées seul (et pourquoi)
 
-- **Dédup par SHA-256 de (mime + octets)**, jamais par identifiant d'API : les
-  événements de sortie se déclenchent plusieurs fois par exécution ; seul le
-  contenu est fiable. Conséquence assumée : re-exécuter un code qui produit une
-  image octet-pour-octet identique ne crée pas de doublon, la sélection saute
-  sur l'entrée existante (mode suivi).
+- **Une entrée par exécution, historique chronologique** (demande
+  utilisateur, 2026-09-30) : l'`id` d'une entrée = SHA-256 de (hash de
+  contenu, notebook, cellule, lot). Les événements de sortie répétés d'une
+  même exécution retombent sur le même id (dédup là où elle est nécessaire) ;
+  re-lancer une cellule, ou refaire un Run All, **remet toutes les figures**
+  même octet-pour-octet identiques. Sur disque, les images sont nommées par
+  `contentHash` : un doublon n'est stocké qu'une fois. Anciens index sans
+  `contentHash` ⇒ `contentHash = id` (compat, `INDEX_VERSION` reste 1).
+- **Lots d'exécution (`RunTracker`, `runs.ts`)** — séquence vérifiée dans un
+  vrai hôte : à la mise en file VS Code émet un `executionSummary` **sans
+  count ni timing** pour chaque cellule (un Run All les met toutes en file
+  d'un coup), puis le count au démarrage, puis `timing` à la fin. Même lot si
+  l'exécution est enregistrée ≤ `QUEUE_GAP_MS` (500 ms) après l'activité
+  précédente du notebook **et** que la cellule n'est pas déjà dans le lot (un
+  Run All n'exécute jamais deux fois une cellule). Libellés portés par
+  `PlotHistory` (persistés en `runLabels` dans `index.json`) : « Run all N »
+  (N attribué seulement quand le lot dessine une figure : « Clear All
+  Outputs » met aussi tout en file et ne doit pas trouer la numérotation),
+  « Run y » pour une exécution seule, y = son count (le `[y]` de la marge).
+  Limite assumée : Run above/below et une sélection de cellules s'appellent
+  aussi « Run all ».
+- **Jamais d'`opacity` sur le conteneur scrollable d'un webview** : l'état
+  « busy » de la vue Variables grisait `#list` ; retiré dans la même tâche que
+  la reconstruction complète après un Run All, Chromium laissait des lignes
+  non peintes jusqu'au prochain scroll. Busy = fine ligne
+  `--vscode-progressBar-background` sous le filtre, plus un `scrollTop`
+  réassigné au frame suivant en filet de sécurité.
 - **Capture sur tous les `notebookType`**, pas une liste blanche : l'Interactive
   Window est un notebook (`notebookType: "interactive"`), et n'importe quel
   kernel émettant des images en profite. C'est aussi ce qui permet aux tests de
@@ -96,7 +119,7 @@ Toute violation est un échec du projet, pas un compromis acceptable :
 - **Ordre MIME : `image/svg+xml` > `image/png` > `image/webp` > `image/jpeg` >
   `image/gif` > `image/bmp`** — vectoriel d'abord, puis fidélité décroissante.
 - **Sélection** : le premier plot est sélectionné même sans mode suivi ; un
-  doublon re-sélectionne l'entrée existante en mode suivi ; si l'entrée
+  événement répété d'une même capture re-sélectionne l'entrée en mode suivi ; si l'entrée
   sélectionnée est évincée, repli sur la plus ancienne survivante.
 - **Persistance = réconciliation complète et idempotente** du dossier à chaque
   changement (fichiers adressés par contenu + `index.json`), sérialisée dans une
@@ -130,8 +153,8 @@ Toute violation est un échec du projet, pas un compromis acceptable :
   `cellIndex`, `originUri`/`originLine` pour l'IW) sont **optionnelles et
   additives** dans `index.json` : `INDEX_VERSION` reste à 1 (le bump
   effacerait l'historique de tout le monde ; le garde `isRecord` tolérant
-  assure la compat dans les deux sens). La dédup par contenu fait qu'un
-  doublon octet-pour-octet garde les métadonnées de la première capture.
+  assure la compat dans les deux sens). Chaque exécution enregistre son propre
+  code, même quand la figure est identique.
 - **Reveal/rerun retrouvent la cellule par texte exact d'abord**, indice
   capturé en repli : les cellules bougent, le texte est plus fiable ; best
   effort assumé avec erreurs explicites.
@@ -167,8 +190,29 @@ Toute violation est un échec du projet, pas un compromis acceptable :
   Corollaire : chaque fetch est **décoré une fois** (row + size + changedAt +
   `fallbackChildren`) ; changer groupement/tri ne fait que re-projeter ce
   cache, jamais retoucher le kernel ni re-parser.
-- **Règle d'or de la vue Variables : toujours 2 colonnes** (nom | valeur,
-  hint de type discret à droite, `VALUE_CAP` 80). Expansion en étages :
+- **Colonnes de la vue Variables** (décision utilisateur, 2026-10-01) :
+  nom | valeur | type | size | bouton Data Viewer. La valeur n'est affichée
+  **que pour les constantes** (`isConstant` : scalaires Python/numpy,
+  vecteurs R de longueur 1) et, pour FUNCTIONS/CLASSES, la signature ; un
+  conteneur n'a qu'un type et une taille. `sizeLabel` écrit la taille en
+  **notation de forme numpy** pour ndarray/DataFrame/Series (`(10,)`,
+  `(100, 100)`, `(2, 3, 10)`), la longueur pour les autres conteneurs.
+  Jupyter ne transmet aucune forme : `ndarrayShape` la lit dans le repr.
+  numpy 2 écrit `shape=(…)` dans tout repr résumé, et un repr complet se
+  compte axe par axe. `count` (= len) donne le 1er axe. Un axe résumé sans
+  `shape=` (numpy 1.x) s'affiche `…`, jamais deviné. Un DataFrame sans la
+  queue `[N rows x M columns]` prend sa forme dans `df.info()`. Le bouton
+  viewer est toujours visible. Les pistes type/size sont mesurées sur le
+  plus long texte de premier niveau et partagées par toutes les lignes,
+  comme le nom. **Deux séparateurs** : nom|valeur et valeur|type (placé
+  depuis la droite via `--content-width`, ResizeObserver pour la barre de
+  défilement). Les deux largeurs sont persistées en `globalState`, et
+  « Reset Variables Column Widths » les remet en auto. Un double-clic sur
+  valeur|type ajuste la colonne au type le plus long, et le survol d'un type
+  montre son nom qualifié complet (`fullType`). Les scalaires numpy 2
+  (`np.int64(8)`) sont déballés dans la valeur, y compris dans les listes, et
+  leur type garde le préfixe (`np.int64`). Les
+  lignes enfants gardent index | valeur. Expansion en étages :
   l'API Kernels (Insiders/test) exécute le snippet d'inspection ; sur stable,
   `reprParse.ts` transforme les reprs SafeRepr en **tables d'aperçu**
   index | valeur (Series, colonnes d'un DataFrame via sa grille de repr,
@@ -198,6 +242,16 @@ Toute violation est un échec du projet, pas un compromis acceptable :
   du code ne peut pas simuler une réponse) et enveloppe chaque accès dans
   try/except (l'expansion peut exécuter des property getters — compromis
   standard des inspecteurs).
+- **Clear Variables sur un notebook** = `jupyter.restartkernel` confirmé,
+  puis `clearedAt` : FUNCTIONS/CLASSES (lues dans le source des cellules)
+  ne comptent plus que les cellules dont `timing.endTime` est postérieur au
+  clear. Les numéros d'exécution repartent à 1 au restart et ne distinguent
+  rien. Un restart par le bouton de Jupyter reste invisible (pas d'événement
+  stable).
+- **Conteneur Plots dans `viewsContainers.secondarySidebar`** (onglet à côté
+  du Chat) : point de contribution stable depuis VS Code 1.106, d'où
+  `engines.vscode ^1.106.0`. Une disposition déplacée à la main est
+  conservée par VS Code.
 - **Toolbars natives partout** (`view/title`, `editor/title` +
   `contributes.submenus`) plutôt qu'une toolbar HTML dans le webview : pas de
   police codicon à embarquer, pas de dropdown à réimplémenter. Limite
