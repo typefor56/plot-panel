@@ -43,6 +43,9 @@ function ensureController(): void {
       const execution = ctrl.createNotebookCellExecution(cell);
       execution.start(Date.now());
       const items = pendingOutputs.shift() ?? [];
+      // Twice, like a real kernel re-firing output events within one
+      // execution: every test also checks that those repeats collapse.
+      await execution.replaceOutput(new vscode.NotebookCellOutput(items));
       await execution.replaceOutput(new vscode.NotebookCellOutput(items));
       execution.end(true, Date.now());
     }
@@ -111,22 +114,24 @@ suite('capture in a real extension host', () => {
     assert.strictEqual(api.history.selected?.id, entry.id);
   });
 
-  test('re-emitting identical content does not duplicate the history', async () => {
+  test('every execution re-adds its figure, even byte-identical', async () => {
     const api = await activateExtension();
     api.history.clear();
     const notebook = await openTestNotebook();
     await executeWithOutputs(notebook, [new vscode.NotebookCellOutputItem(PNG_A, 'image/png')]);
     await waitFor(() => api.history.entries.length === 1, 'first capture');
-    // Re-running the same code produces byte-identical output, and VS Code
-    // additionally fires several change events per execution: both must
-    // deduplicate on content.
+    // Re-running the same code is a new run in the history: the strip reads
+    // chronologically, not as a set of distinct images.
     await executeWithOutputs(notebook, [new vscode.NotebookCellOutputItem(PNG_A, 'image/png')]);
     await executeWithOutputs(notebook, [new vscode.NotebookCellOutputItem(PNG_B, 'image/png')]);
-    await waitFor(() => api.history.entries.length === 2, 'second distinct capture');
-    assert.deepStrictEqual(
-      api.history.entries.map((entry) => entry.mime),
-      ['image/png', 'image/png'],
-    );
+    await waitFor(() => api.history.entries.length === 3, 'one entry per execution');
+    const [first, second, third] = api.history.entries;
+    assert.ok(first && second && third);
+    assert.strictEqual(first.contentHash, second.contentHash);
+    assert.notStrictEqual(first.id, second.id);
+    assert.notStrictEqual(first.run, second.run);
+    assert.notStrictEqual(second.contentHash, third.contentHash);
+    assert.strictEqual(api.history.selected?.id, third.id);
   });
 
   test('a capture records the originating cell, its code and the notebook uri', async () => {
@@ -143,14 +148,14 @@ suite('capture in a real extension host', () => {
     assert.strictEqual(entry.originUri, undefined, 'not an Interactive Window cell');
   });
 
-  test('a byte-identical re-capture keeps the first capture’s code metadata', async () => {
+  test('a byte-identical re-run records the code it actually ran', async () => {
     const api = await activateExtension();
     api.history.clear();
     const notebook = await openTestNotebook();
     await executeWithOutputs(notebook, [new vscode.NotebookCellOutputItem(PNG_A, 'image/png')]);
     await waitFor(() => api.history.entries.length === 1, 'first capture');
-    // Change the cell source, then emit the same bytes again: dedup keeps the
-    // existing entry, so the recorded code must still be the original one.
+    // Change the cell source, then emit the same bytes again: a new entry,
+    // carrying the edited code.
     const cell = notebook.cellAt(0);
     const edit = new vscode.WorkspaceEdit();
     edit.replace(
@@ -160,8 +165,46 @@ suite('capture in a real extension host', () => {
     );
     assert.ok(await vscode.workspace.applyEdit(edit), 'cell edit must apply');
     await executeWithOutputs(notebook, [new vscode.NotebookCellOutputItem(PNG_A, 'image/png')]);
-    assert.strictEqual(api.history.entries.length, 1, 'no duplicate entry');
+    await waitFor(() => api.history.entries.length === 2, 'second run');
     assert.strictEqual(api.history.entries[0]?.code, 'pass');
+    assert.strictEqual(api.history.entries[1]?.code, 'pass  # edited');
+  });
+
+  test('a Run All is one labelled run, a lone cell run another', async () => {
+    const api = await activateExtension();
+    api.history.clear();
+    const notebook = await vscode.workspace.openNotebookDocument(
+      NOTEBOOK_TYPE,
+      new vscode.NotebookData(
+        [0, 1, 2].map(
+          (i) => new vscode.NotebookCellData(vscode.NotebookCellKind.Code, `c${i}`, 'python'),
+        ),
+      ),
+    );
+    await vscode.window.showNotebookDocument(notebook);
+    // Cell 1 draws nothing: it still belongs to the Run All.
+    pendingOutputs.push(
+      [new vscode.NotebookCellOutputItem(PNG_A, 'image/png')],
+      [],
+      [new vscode.NotebookCellOutputItem(PNG_B, 'image/png')],
+    );
+    await vscode.commands.executeCommand('notebook.execute');
+    await waitFor(() => api.history.entries.length === 2, 'Run All figures');
+    const [a, b] = api.history.entries;
+    assert.ok(a?.run !== undefined && a.run === b?.run, 'one run for the whole Run All');
+    assert.match(api.history.runLabel(a.run) ?? '', /^Run all \d+$/);
+
+    await new Promise((resolve) => setTimeout(resolve, 1500)); // a human pause
+    pendingOutputs.push([new vscode.NotebookCellOutputItem(PNG_A, 'image/png')]);
+    await vscode.commands.executeCommand(
+      'notebook.cell.execute',
+      { ranges: [{ start: 1, end: 2 }] },
+      notebook.uri,
+    );
+    await waitFor(() => api.history.entries.length === 3, 'lone cell run');
+    const lone = api.history.entries[2];
+    assert.ok(lone?.run !== undefined && lone.run !== a.run);
+    assert.match(api.history.runLabel(lone.run) ?? '', /^Run( \d+)?$/);
   });
 
   test('the richest MIME representation wins (SVG over PNG)', async () => {

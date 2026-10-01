@@ -163,9 +163,9 @@
         marker.className = 'run-marker';
         const label = document.createElement('span');
         label.className = 'run-label';
-        label.textContent = 'Run ' + run;
+        label.textContent = run;
         marker.appendChild(label);
-        marker.title = 'Figures produced by run ' + run;
+        marker.title = 'Figures produced by ' + run;
         strip.appendChild(marker);
       }
       const button = document.createElement('button');
@@ -271,7 +271,7 @@
         sessionMode = message.sessionMode === 'single' ? 'single' : 'gallery';
         applyDisplay(message.display);
         entries = message.entries.slice();
-        runLabels = new Map((message.runs || []).map((label) => [label.id, label.run]));
+        runLabels = new Map((message.runs || []).map((label) => [label.id, label.label]));
         selectedId = message.selectedId;
         requested.clear();
         renderNotice(message.notice);
@@ -291,7 +291,7 @@
         renderStrip();
         break;
       case 'runs':
-        runLabels = new Map(message.runs.map((label) => [label.id, label.run]));
+        runLabels = new Map(message.runs.map((label) => [label.id, label.label]));
         renderStrip();
         break;
       case 'evicted':

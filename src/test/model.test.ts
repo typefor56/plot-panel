@@ -7,6 +7,7 @@ import type { PlotEntry } from '../types';
 function entry(id: string, mime = 'image/png'): PlotEntry {
   return {
     id,
+    contentHash: id,
     mime,
     data: new Uint8Array([1, 2, 3]),
     timestamp: Date.now(),

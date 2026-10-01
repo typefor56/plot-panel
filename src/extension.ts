@@ -10,6 +10,7 @@ import { DisplayOptions } from './displayOptions';
 import { PanelManager } from './galleryPanel';
 import { PlotHistory } from './history';
 import { PlotStore } from './persistence';
+import { runAllOrdinal } from './runs';
 import { PlotsViewProvider } from './plotsView';
 import { SessionRegistry } from './sessionRegistry';
 import { ThumbnailCache } from './thumbnails';
@@ -194,9 +195,16 @@ export function activate(context: vscode.ExtensionContext): PlotPanelApi {
     for (const [id, thumb] of snapshot.thumbnails) {
       thumbnails.set(id, thumb);
     }
+    for (const [run, label] of snapshot.runLabels) {
+      history.setRunLabel(run, label);
+    }
     for (const entry of snapshot.entries) {
       history.add(entry, false);
     }
+    capture.runs.resume(
+      Math.max(0, ...snapshot.entries.map((entry) => entry.run ?? 0)),
+      Math.max(0, ...[...snapshot.runLabels.values()].map(runAllOrdinal)),
+    );
     history.select(snapshot.selectedId ?? history.entries.at(-1)?.id);
     thumbnails.prune(new Set(history.entries.map((entry) => entry.id)));
     context.subscriptions.push(

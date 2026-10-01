@@ -8,9 +8,10 @@ import type { PlotEntry, PlotSourceKind } from './types';
 /**
  * Persistence of the plot history across restarts, in the extension's global
  * storage directory (never workspaceState, which is not meant for binary
- * data). Layout: one image file per entry, content-addressed by its id, an
- * optional <id>.thumb.png reduced preview, plus an index.json with the
- * metadata and the current selection.
+ * data). Layout: one image file per distinct content, named by its hash (a
+ * figure re-drawn identically by every Run All is stored once), an optional
+ * <id>.thumb.png reduced preview per entry, plus an index.json with the
+ * metadata, the run labels and the current selection.
  *
  * Writes are serialized through a promise queue and each sync is a full,
  * idempotent reconciliation of the directory against a snapshot, so crashes
@@ -33,6 +34,9 @@ interface IndexRecord {
   readonly notebookUri?: string;
   readonly cellIndex?: number;
   readonly executionOrder?: number;
+  /** Absent from stores written before per-run entries, where it was the id. */
+  readonly contentHash?: string;
+  readonly run?: number;
   readonly originUri?: string;
   readonly originLine?: number;
 }
@@ -41,16 +45,19 @@ interface IndexFile {
   readonly version: number;
   readonly selectedId: string | undefined;
   readonly records: readonly IndexRecord[];
+  /** run -> label, for the runs still in the history (additive, version 1). */
+  readonly runLabels?: Readonly<Record<string, string>>;
 }
 
 export interface StoreSnapshot {
   readonly entries: readonly PlotEntry[];
   readonly selectedId: string | undefined;
   readonly thumbnails: ReadonlyMap<string, Uint8Array>;
+  readonly runLabels: ReadonlyMap<number, string>;
 }
 
-function fileNameFor(entry: { id: string; mime: string }): string {
-  return `${entry.id}.${extensionForMime(entry.mime)}`;
+function fileNameFor(entry: { contentHash: string; mime: string }): string {
+  return `${entry.contentHash}.${extensionForMime(entry.mime)}`;
 }
 
 function isRecord(value: unknown): value is IndexRecord {
@@ -71,6 +78,8 @@ function isRecord(value: unknown): value is IndexRecord {
     (record.notebookUri === undefined || typeof record.notebookUri === 'string') &&
     (record.cellIndex === undefined || typeof record.cellIndex === 'number') &&
     (record.executionOrder === undefined || typeof record.executionOrder === 'number') &&
+    (record.contentHash === undefined || typeof record.contentHash === 'string') &&
+    (record.run === undefined || typeof record.run === 'number') &&
     (record.originUri === undefined || typeof record.originUri === 'string') &&
     (record.originLine === undefined || typeof record.originLine === 'number')
   );
@@ -87,6 +96,7 @@ export class PlotStore {
       entries: [],
       selectedId: undefined,
       thumbnails: new Map(),
+      runLabels: new Map(),
     };
     let raw: Uint8Array;
     try {
@@ -113,12 +123,14 @@ export class PlotStore {
         const data = await vscode.workspace.fs.readFile(
           vscode.Uri.joinPath(this.dir, record.file),
         );
-        // Integrity check: the id must still be the hash of the content.
-        if (contentId(record.mime, data) !== record.id) {
+        // Integrity check: the file must still hash to the recorded content.
+        const contentHash = record.contentHash ?? record.id;
+        if (contentId(record.mime, data) !== contentHash) {
           continue;
         }
         entries.push({
           id: record.id,
+          contentHash,
           mime: record.mime,
           data,
           timestamp: record.timestamp,
@@ -128,6 +140,7 @@ export class PlotStore {
           ...(record.notebookUri !== undefined ? { notebookUri: record.notebookUri } : {}),
           ...(record.cellIndex !== undefined ? { cellIndex: record.cellIndex } : {}),
       ...(record.executionOrder !== undefined ? { executionOrder: record.executionOrder } : {}),
+          ...(record.run !== undefined ? { run: record.run } : {}),
           ...(record.originUri !== undefined ? { originUri: record.originUri } : {}),
           ...(record.originLine !== undefined ? { originLine: record.originLine } : {}),
         });
@@ -150,7 +163,15 @@ export class PlotStore {
       typeof index.selectedId === 'string' && entries.some((e) => e.id === index.selectedId)
         ? index.selectedId
         : undefined;
-    return { entries, selectedId, thumbnails };
+    const runLabels = new Map<number, string>();
+    if (typeof index.runLabels === 'object' && index.runLabels !== null) {
+      for (const [run, label] of Object.entries(index.runLabels)) {
+        if (typeof label === 'string' && Number.isInteger(Number(run))) {
+          runLabels.set(Number(run), label);
+        }
+      }
+    }
+    return { entries, selectedId, thumbnails, runLabels };
   }
 
   /** Keep the store in sync with the history and thumbnail cache from now on. */
@@ -167,6 +188,7 @@ export class PlotStore {
         entries: [...history.entries],
         selectedId: history.selected?.id,
         thumbnails: kept,
+        runLabels: history.runLabels,
       };
       this.queue = this.queue.then(
         () => this.sync(snapshot),
@@ -232,9 +254,12 @@ export class PlotStore {
         ...(entry.notebookUri !== undefined ? { notebookUri: entry.notebookUri } : {}),
         ...(entry.cellIndex !== undefined ? { cellIndex: entry.cellIndex } : {}),
       ...(entry.executionOrder !== undefined ? { executionOrder: entry.executionOrder } : {}),
+        contentHash: entry.contentHash,
+        ...(entry.run !== undefined ? { run: entry.run } : {}),
         ...(entry.originUri !== undefined ? { originUri: entry.originUri } : {}),
         ...(entry.originLine !== undefined ? { originLine: entry.originLine } : {}),
       })),
+      runLabels: Object.fromEntries(snapshot.runLabels),
     };
     await vscode.workspace.fs.writeFile(
       vscode.Uri.joinPath(this.dir, INDEX_FILE),

@@ -1,7 +1,8 @@
 import * as vscode from 'vscode';
-import { contentId } from './hash';
+import { captureId, contentId } from './hash';
 import type { PlotHistory } from './history';
 import { findWidgetMime, pickImageItem } from './mime';
+import { RunTracker } from './runs';
 import type { PlotEntry, PlotSourceKind } from './types';
 
 /**
@@ -62,13 +63,18 @@ function interactiveOriginOf(cell: vscode.NotebookCell): InteractiveOrigin | und
 export class PlotCapture implements vscode.Disposable {
   private readonly subscription: vscode.Disposable;
   private readonly unsupportedListeners = new Set<UnsupportedOutputListener>();
+  readonly runs: RunTracker;
 
   constructor(
     private readonly history: PlotHistory,
     private readonly follow: () => boolean,
   ) {
-    this.subscription = vscode.workspace.onDidChangeNotebookDocument((event) =>
-      this.handleChange(event),
+    this.runs = new RunTracker((run, label) => history.setRunLabel(run, label));
+    this.subscription = vscode.Disposable.from(
+      vscode.workspace.onDidChangeNotebookDocument((event) => this.handleChange(event)),
+      vscode.workspace.onDidCloseNotebookDocument((notebook) =>
+        this.runs.forget(notebook.uri.toString()),
+      ),
     );
   }
 
@@ -80,6 +86,16 @@ export class PlotCapture implements vscode.Disposable {
 
   private handleChange(event: vscode.NotebookDocumentChangeEvent): void {
     for (const change of event.cellChanges) {
+      const summary = change.executionSummary;
+      if (summary !== undefined) {
+        this.runs.observe(
+          event.notebook.uri.toString(),
+          change.cell.index,
+          summary.executionOrder,
+          summary.timing !== undefined,
+          Date.now(),
+        );
+      }
       // `outputs` is undefined when the change did not touch outputs.
       if (change.outputs === undefined) {
         continue;
@@ -100,21 +116,25 @@ export class PlotCapture implements vscode.Disposable {
       const sourceKind = sourceKindOf(notebook);
       const code = cell.document.getText().slice(0, CODE_CAP);
       const origin = sourceKind === 'interactive' ? interactiveOriginOf(cell) : undefined;
+      const notebookUri = notebook.uri.toString();
+      const executionOrder = cell.executionSummary?.executionOrder;
+      const run = this.runs.runOf(notebookUri, cell.index, executionOrder, Date.now());
+      const contentHash = contentId(image.mime, image.data);
       const entry: PlotEntry = {
-        id: contentId(image.mime, image.data),
+        id: captureId(contentHash, notebookUri, cell.index, run),
+        contentHash,
         mime: image.mime,
         data: image.data,
         timestamp: Date.now(),
         source: sourceLabelOf(notebook),
         sourceKind,
         ...(code.length > 0 ? { code } : {}),
-        notebookUri: notebook.uri.toString(),
+        notebookUri,
+        run,
         ...(cell.index >= 0 ? { cellIndex: cell.index } : {}),
         // Distinguishes several figures from ONE execution of a cell from the
         // same cell run again: both share a cell index, not an execution.
-        ...(cell.executionSummary?.executionOrder !== undefined
-          ? { executionOrder: cell.executionSummary.executionOrder }
-          : {}),
+        ...(executionOrder !== undefined ? { executionOrder } : {}),
         ...(origin !== undefined
           ? { originUri: origin.uristring, originLine: origin.lineIndex }
           : {}),

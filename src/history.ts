@@ -12,6 +12,7 @@ export type HistoryEvent =
   | { readonly type: 'added'; readonly entry: PlotEntry }
   | { readonly type: 'evicted'; readonly ids: readonly string[] }
   | { readonly type: 'selected'; readonly id: string | undefined }
+  | { readonly type: 'runs' }
   | { readonly type: 'cleared' };
 
 export type AddResult = 'added' | 'duplicate';
@@ -20,6 +21,8 @@ export class PlotHistory {
   private items: PlotEntry[] = [];
   private readonly byId = new Map<string, PlotEntry>();
   private currentId: string | undefined;
+  /** Name of each execution batch ("Run all 2", "Run 7"), see runs.ts. */
+  private readonly labels = new Map<number, string>();
   private maxEntries: number;
   private readonly listeners = new Set<(event: HistoryEvent) => void>();
 
@@ -49,6 +52,30 @@ export class PlotHistory {
       : this.items.findIndex((entry) => entry.id === this.currentId);
   }
 
+  runLabel(run: number): string | undefined {
+    return this.labels.get(run);
+  }
+
+  /** Labels of the batches that still have figures in the history. */
+  get runLabels(): ReadonlyMap<number, string> {
+    const kept = new Map<number, string>();
+    for (const entry of this.items) {
+      const label = entry.run === undefined ? undefined : this.labels.get(entry.run);
+      if (entry.run !== undefined && label !== undefined) {
+        kept.set(entry.run, label);
+      }
+    }
+    return kept;
+  }
+
+  setRunLabel(run: number, label: string): void {
+    if (this.labels.get(run) === label) {
+      return;
+    }
+    this.labels.set(run, label);
+    this.emit({ type: 'runs' });
+  }
+
   /** Subscribe to changes; returns an unsubscribe function. */
   onDidChange(listener: (event: HistoryEvent) => void): () => void {
     this.listeners.add(listener);
@@ -62,9 +89,9 @@ export class PlotHistory {
   }
 
   /**
-   * Add an entry. Content already present (same id) is a duplicate: nothing is
-   * stored, but with `follow` the selection jumps to the existing entry so the
-   * user still "sees the figure arrive".
+   * Add an entry. An id already present is the same capture seen again (VS
+   * Code re-fires output events within one execution): nothing is stored,
+   * but with `follow` the selection jumps to the existing entry.
    */
   add(entry: PlotEntry, follow: boolean): AddResult {
     if (this.byId.has(entry.id)) {

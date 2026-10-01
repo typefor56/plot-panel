@@ -12,6 +12,7 @@ function makeEntry(bytes: number[], mime = 'image/png'): PlotEntry {
   const data = new Uint8Array(bytes);
   return {
     id: contentId(mime, data),
+    contentHash: contentId(mime, data),
     mime,
     data,
     timestamp: 1700000000000,
@@ -122,6 +123,68 @@ suite('persistence round trip on disk', () => {
       assert.strictEqual(reloaded.entries.length, 0);
     } finally {
       subscription.dispose();
+      await vscode.workspace.fs.delete(dir, { recursive: true, useTrash: false });
+    }
+  });
+
+  test('re-runs of one figure share a file on disk, and run labels persist', async () => {
+    const dir = tempStoreDir();
+    const history = new PlotHistory(10);
+    const store = new PlotStore(dir);
+    const subscription = store.attach(history, new ThumbnailCache());
+    try {
+      const base = makeEntry([1, 2, 3]);
+      history.setRunLabel(1, 'Run all 1');
+      history.setRunLabel(2, 'Run 5');
+      history.add({ ...base, id: 'first', run: 1 }, true);
+      history.add({ ...base, id: 'second', run: 2 }, true);
+      await store.flush();
+
+      const images = (await vscode.workspace.fs.readDirectory(dir)).filter(([name]) =>
+        name.endsWith('.png'),
+      );
+      assert.strictEqual(images.length, 1, 'identical bytes are stored once');
+      const reloaded = await new PlotStore(dir).load();
+      assert.deepStrictEqual(
+        reloaded.entries.map((e) => [e.id, e.run]),
+        [
+          ['first', 1],
+          ['second', 2],
+        ],
+      );
+      assert.deepStrictEqual([...reloaded.runLabels], [
+        [1, 'Run all 1'],
+        [2, 'Run 5'],
+      ]);
+    } finally {
+      subscription.dispose();
+      await vscode.workspace.fs.delete(dir, { recursive: true, useTrash: false });
+    }
+  });
+
+  test('a store written before per-run entries still loads', async () => {
+    const dir = tempStoreDir();
+    const data = new Uint8Array([4, 2]);
+    const id = contentId('image/png', data);
+    await vscode.workspace.fs.createDirectory(dir);
+    await vscode.workspace.fs.writeFile(vscode.Uri.joinPath(dir, `${id}.png`), data);
+    const legacy = {
+      version: 1,
+      selectedId: id,
+      records: [
+        { id, mime: 'image/png', timestamp: 1, source: 'old.ipynb', sourceKind: 'notebook', file: `${id}.png` },
+      ],
+    };
+    await vscode.workspace.fs.writeFile(
+      vscode.Uri.joinPath(dir, 'index.json'),
+      Buffer.from(JSON.stringify(legacy), 'utf8'),
+    );
+    try {
+      const reloaded = await new PlotStore(dir).load();
+      assert.strictEqual(reloaded.entries[0]?.contentHash, id);
+      assert.strictEqual(reloaded.entries[0]?.run, undefined);
+      assert.strictEqual(reloaded.runLabels.size, 0);
+    } finally {
       await vscode.workspace.fs.delete(dir, { recursive: true, useTrash: false });
     }
   });

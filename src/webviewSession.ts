@@ -55,10 +55,10 @@ interface DisplayState {
   readonly darkFilter: boolean;
 }
 
-/** The figure that opens a run, and that run's 1-based number. */
+/** The figure that opens a run, and that run's name ("Run all 2", "Run 7"). */
 interface RunLabel {
   readonly id: string;
-  readonly run: number;
+  readonly label: string;
 }
 
 type ToWebviewMessage =
@@ -233,7 +233,8 @@ export class PlotWebviewSession implements vscode.Disposable {
     for (const group of groupIntoRuns(entries)) {
       const first = entries[group.startIndex];
       if (first !== undefined) {
-        labels.push({ id: first.id, run: group.run });
+        const named = first.run === undefined ? undefined : this.history.runLabel(first.run);
+        labels.push({ id: first.id, label: named ?? `Run ${group.run}` });
       }
     }
     return labels;
@@ -267,6 +268,9 @@ export class PlotWebviewSession implements vscode.Disposable {
         if (this.options.mode === 'gallery') {
           this.post({ type: 'selected', id: event.id });
         }
+        break;
+      case 'runs':
+        this.postRunLabels();
         break;
       case 'cleared':
         this.post({ type: 'cleared' });
