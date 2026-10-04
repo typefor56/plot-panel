@@ -16,7 +16,18 @@ import type { PlotEntry, PlotSourceKind } from './types';
  * notebook type.
  */
 
-export type UnsupportedOutputListener = (mime: string, source: string) => void;
+/**
+ * Copilot Chat keeps a snapshot of a notebook it has edited under a
+ * `chat-editing-notebook-snapshot-model:` URI, and VS Code mirrors every
+ * execution and output of the real notebook into it (seen in a user's
+ * index.json: each figure twice, 2 ms apart, under two runs). It has no
+ * kernel and is nothing the user ran.
+ */
+export function isShadowNotebook(notebook: vscode.NotebookDocument): boolean {
+  return notebook.uri.scheme.startsWith('chat-editing');
+}
+
+export type UnsupportedOutputListener =(mime: string, source: string) => void;
 
 function sourceKindOf(notebook: vscode.NotebookDocument): PlotSourceKind {
   return notebook.notebookType === 'interactive' ? 'interactive' : 'notebook';
@@ -85,7 +96,10 @@ export class PlotCapture implements vscode.Disposable {
   }
 
   private handleChange(event: vscode.NotebookDocumentChangeEvent): void {
-    for (const change of event.cellChanges) {
+    if (isShadowNotebook(event.notebook)) {
+      return;
+    }
+    for(const change of event.cellChanges) {
       const summary = change.executionSummary;
       if (summary !== undefined) {
         this.runs.observe(

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.2
+
+- With a notebook Copilot Chat has edited, a Run All no longer adds every
+  figure twice under two interleaved runs, and the variables view no longer
+  drops to FUNCTIONS and CLASSES until the notebook is scrolled.
+
 ## 0.2.1
 
 - No default keys for clearing: Ctrl+L and Ctrl+Shift+L keep their editor

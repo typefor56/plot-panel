@@ -15,6 +15,7 @@ import type { JupyterVariablesSource, KernelVariable } from './jupyterApi';
 import type { ConsoleSession } from '../console/session';
 import type { ConsoleSessionManager } from '../console/sessionManager';
 import { ExpandRegistry, type PreviewRow, truncate } from './expandTree';
+import { isShadowNotebook } from '../capture';
 import { startsNewRun } from '../runs';
 import { parsePythonDefinitions } from './pythonDefs';
 import type { VariablesOptions } from './variablesOptions';
@@ -285,7 +286,10 @@ export class VariablesViewProvider implements vscode.WebviewViewProvider, vscode
       // not on every output chunk: a fetch mid-run would queue kernel work
       // behind the running cell and come back stale anyway.
       vscode.workspace.onDidChangeNotebookDocument((event) => {
-        const finished = event.cellChanges.some(
+        if (isShadowNotebook(event.notebook)) {
+          return; // kernel-less mirror: targeting it empties VALUES/DATA
+        }
+        const finished =event.cellChanges.some(
           (change) => change.executionSummary?.timing !== undefined,
         );
         if (finished) {
