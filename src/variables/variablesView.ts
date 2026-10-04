@@ -184,6 +184,52 @@ export function definedInCells(
   return [...found.values()];
 }
 
+/**
+ * Update a source's change map with a fresh listing and return when each
+ * variable last changed: a variable is "recent" when it is new or its
+ * signature moved since the previous listing. The signature includes the
+ * DataFrame summary because a mutated wide frame can keep an identical repr
+ * head/tail while df.info's counts move. Names that moved join `epoch`, the
+ * set highlighted for the current run.
+ *
+ * `ran` says an execution ended since the previous listing. Without one, on
+ * the very first listing everything is "new", which is not news: the view
+ * was just opened on a kernel already holding these. With one, they are what
+ * the run created — skipping them left the first cells of a first Run All
+ * unmarked and the later ones highlighted.
+ */
+export function trackChanges(
+  known: Map<string, { signature: string; changedAt: number }>,
+  epoch: Set<string>,
+  variables: readonly KernelVariable[],
+  ran: boolean,
+  now: number,
+): ReadonlyMap<string, number> {
+  const baseline = known.size === 0 && !ran;
+  const seen = new Set<string>();
+  const changedAt = new Map<string, number>();
+  for (const variable of variables) {
+    seen.add(variable.name);
+    const signature = `${variable.type} ${variable.value} ${variable.summary ?? ''}`;
+    const previous = known.get(variable.name);
+    if (previous === undefined || previous.signature !== signature) {
+      known.set(variable.name, { signature, changedAt: now });
+      changedAt.set(variable.name, now);
+      if (!baseline) {
+        epoch.add(variable.name);
+      }
+    } else {
+      changedAt.set(variable.name, previous.changedAt);
+    }
+  }
+  for (const name of [...known.keys()]) {
+    if (!seen.has(name)) {
+      known.delete(name);
+    }
+  }
+  return changedAt;
+}
+
 function notebookLabel(notebook: vscode.NotebookDocument): string {
   if (notebook.notebookType === 'interactive') {
     return 'Interactive Window';
@@ -258,6 +304,8 @@ export class VariablesViewProvider implements vscode.WebviewViewProvider, vscode
    */
   private readonly runChanged = new Map<string, Set<string>>();
   private readonly runReached = new Map<string, number>();
+  /** Sources where an execution ended since their last listing. */
+  private readonly ranSince = new Set<string>();
   /** Epoch of the source being decorated. */
   private currentRunChanged: ReadonlySet<string> = new Set();
   /** Per-notebook change tracking for the Recent sort (session-scoped). */
@@ -302,6 +350,7 @@ export class VariablesViewProvider implements vscode.WebviewViewProvider, vscode
           }
           this.runReached.set(key, Math.max(...indices, this.runReached.get(key) ?? -1));
           this.fetchedAt.delete(key);
+          this.ranSince.add(key);
           this.target = { kind: 'notebook', notebook: event.notebook };
           if (this.autoRefresh()) {
             this.scheduleRefresh(REFRESH_DEBOUNCE_MS);
@@ -409,6 +458,7 @@ export class VariablesViewProvider implements vscode.WebviewViewProvider, vscode
       return;
     }
     if (wasBusy && active.state === 'idle') {
+      this.ranSince.add(targetKey(this.target));
       this.scheduleRefresh(0);
     }
   }
@@ -586,12 +636,7 @@ export class VariablesViewProvider implements vscode.WebviewViewProvider, vscode
     ];
   }
 
-  /**
-   * Update the per-notebook change map: a variable is "recent" when it is
-   * new or its signature moved since the previous fetch. The signature
-   * includes the DataFrame summary because a mutated wide frame can keep an
-   * identical repr head/tail while df.info's counts move.
-   */
+  /** Feed a listing to trackChanges with this source's maps. */
   private trackRecency(
     uriKey: string,
     variables: readonly KernelVariable[],
@@ -601,37 +646,12 @@ export class VariablesViewProvider implements vscode.WebviewViewProvider, vscode
       known = new Map();
       this.recency.set(uriKey, known);
     }
-    // On the very first listing everything is "new", which is not news:
-    // marking the whole panel would say nothing about what just ran.
-    const firstListing = known.size === 0;
     let epoch = this.runChanged.get(uriKey);
     if (epoch === undefined) {
       epoch = new Set();
       this.runChanged.set(uriKey, epoch);
     }
-    const now = Date.now();
-    const seen = new Set<string>();
-    const changedAt = new Map<string, number>();
-    for (const variable of variables) {
-      seen.add(variable.name);
-      const signature = `${variable.type} ${variable.value} ${variable.summary ?? ''}`;
-      const previous = known.get(variable.name);
-      if (previous === undefined || previous.signature !== signature) {
-        known.set(variable.name, { signature, changedAt: now });
-        changedAt.set(variable.name, now);
-        if (!firstListing) {
-          epoch.add(variable.name);
-        }
-      } else {
-        changedAt.set(variable.name, previous.changedAt);
-      }
-    }
-    for (const name of [...known.keys()]) {
-      if (!seen.has(name)) {
-        known.delete(name);
-      }
-    }
-    return changedAt;
+    return trackChanges(known, epoch, variables, this.ranSince.delete(uriKey), Date.now());
   }
 
   /** Re-project the cached decorations (grouping/sorting changes, no kernel). */

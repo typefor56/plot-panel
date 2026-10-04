@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.3
+
+- On a first Run All, every variable it created is highlighted, not only
+  those from the later cells. Same for the first statement of a console.
+
 ## 0.2.2
 
 - With a notebook Copilot Chat has edited, a Run All no longer adds every

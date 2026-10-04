@@ -12,7 +12,7 @@ import {
 import { ndarrayShape } from '../variables/reprParse';
 import { INSPECT_SENTINEL, buildInspectCode, parseInspectReply } from '../variables/inspect';
 import { parseDataFrameSummary } from '../variables/summary';
-import { definedInCells } from '../variables/variablesView';
+import { definedInCells, trackChanges } from '../variables/variablesView';
 import * as vscode from 'vscode';
 import * as fx from './reprFixtures';
 
@@ -344,5 +344,33 @@ suite('variables: definitions read from executed cells', () => {
       definedInCells(notebook, start).map((definition) => definition.name),
       ['Fresh'],
     );
+  });
+});
+
+suite('variables: highlighting what a run changed', () => {
+  const variable = (name: string, value: string) => ({
+    name,
+    value,
+    type: 'int',
+    expression: name,
+    hasNamedChildren: false,
+    indexedChildrenCount: 0,
+  });
+
+  test('a first listing with no execution behind it marks nothing', () => {
+    const epoch = new Set<string>();
+    trackChanges(new Map(), epoch, [variable('a', '1'), variable('b', '2')], false, 1);
+    assert.deepStrictEqual([...epoch], []);
+  });
+
+  test('a first listing after an execution marks everything it created', () => {
+    const known = new Map<string, { signature: string; changedAt: number }>();
+    const epoch = new Set<string>();
+    trackChanges(known, epoch, [variable('a', '1'), variable('b', '2')], true, 1);
+    assert.deepStrictEqual([...epoch], ['a', 'b']);
+    // The same run going on: only what moved or appeared joins.
+    epoch.clear();
+    trackChanges(known, epoch, [variable('a', '1'), variable('b', '3'), variable('c', '4')], true, 2);
+    assert.deepStrictEqual([...epoch], ['b', 'c']);
   });
 });
