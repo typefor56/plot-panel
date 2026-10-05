@@ -90,19 +90,26 @@ Toute violation est un échec du projet, pas un compromis acceptable :
   même octet-pour-octet identiques. Sur disque, les images sont nommées par
   `contentHash` : un doublon n'est stocké qu'une fois. Anciens index sans
   `contentHash` ⇒ `contentHash = id` (compat, `INDEX_VERSION` reste 1).
-- **Lots d'exécution (`RunTracker`, `runs.ts`)** — séquence vérifiée dans un
-  vrai hôte : à la mise en file VS Code émet un `executionSummary` **sans
-  count ni timing** pour chaque cellule (un Run All les met toutes en file
-  d'un coup), puis le count au démarrage, puis `timing` à la fin. Même lot si
-  l'exécution est enregistrée ≤ `QUEUE_GAP_MS` (500 ms) après l'activité
-  précédente du notebook **et** que la cellule n'est pas déjà dans le lot (un
-  Run All n'exécute jamais deux fois une cellule). Libellés portés par
-  `PlotHistory` (persistés en `runLabels` dans `index.json`) : « Run all N »
-  (N attribué seulement quand le lot dessine une figure : « Clear All
-  Outputs » met aussi tout en file et ne doit pas trouer la numérotation),
-  « Run y » pour une exécution seule, y = son count (le `[y]` de la marge).
-  Limite assumée : Run above/below et une sélection de cellules s'appellent
-  aussi « Run all ».
+- **Lots d'exécution (`RunTracker`, `runs.ts`)** — séquence **sondée dans un
+  vrai hôte en pilotant les exécutions comme Jupyter** (2026-10-05) : à la
+  mise en file VS Code émet un `executionSummary` **sans count ni timing**
+  pour chaque cellule (un Run All les met toutes en file d'un coup), puis **un
+  second, identique, au `start()`**, puis le count, puis `timing` à la fin.
+  « Clear All Outputs » et l'annulation d'une cellule en file en émettent un
+  aussi. Jupyter n'appelle `start()` qu'à l'accusé de réception du kernel (lu
+  dans son bundle) : un démarrage peut suivre la fin de la cellule précédente
+  de plusieurs secondes (kernel occupé ou froid). **Aucun délai ne distingue
+  donc un démarrage d'une nouvelle mise en file — ne pas retenter** : c'est ce
+  qui coupait les Run All en deux. Seule la position le fait : la mise en
+  file d'une exécution est le résumé sans count **juste avant** son
+  démarrage. Les résumés sans count sont seulement groupés en rafales
+  (≤ `QUEUE_GAP_MS` (500 ms) entre deux, et jamais deux fois la même
+  cellule), et une exécution prend la rafale de l'**avant-dernier** qu'elle a
+  reçu. Libellés portés par `PlotHistory` (persistés en `runLabels` dans
+  `index.json`) : « Run all N » (N attribué seulement quand le lot dessine une
+  figure, pour ne pas trouer la numérotation), « Run y » pour une exécution
+  seule, y = son count (le `[y]` de la marge). Limite assumée : Run
+  above/below et une sélection de cellules s'appellent aussi « Run all ».
 - **Jamais d'`opacity` sur le conteneur scrollable d'un webview** : l'état
   « busy » de la vue Variables grisait `#list` ; retiré dans la même tâche que
   la reconstruction complète après un Run All, Chromium laissait des lignes

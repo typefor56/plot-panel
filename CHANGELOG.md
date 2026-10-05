@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.4
+
+- A Run All stays one run in the plot strip when the kernel takes its time
+  between two cells (busy, or just restarted), instead of being cut in two.
+
 ## 0.2.3
 
 - On a first Run All, every variable it created is highlighted, not only

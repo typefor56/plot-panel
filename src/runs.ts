@@ -102,30 +102,33 @@ export function groupIntoRuns(entries: readonly Runnable[]): readonly RunGroup[]
 }
 
 /**
- * Executions starting within this delay of the notebook's previous activity
- * belong to the same batch. Measured in a real extension host: Run All queues
- * every cell within a few milliseconds, and a kernel that only creates the
- * next execution when the previous one ends does so within ~10 ms; a person
- * re-running a cell by hand is far slower.
+ * Cells queued within this delay of one another belong to the same batch.
+ * Measured in a real extension host: Run All queues every cell within a few
+ * milliseconds; a person running cells by hand is far slower.
  */
 // ponytail: fixed delay; a Shift+Enter quicker than this counts as one batch.
 export const QUEUE_GAP_MS = 500;
 
 interface NotebookRuns {
-  /** Cells whose current execution is registered and has not ended. */
-  readonly pending: Set<number>;
+  /**
+   * The last two bursts each cell appeared in since its execution last ended,
+   * oldest first.
+   */
+  readonly seen: Map<number, readonly Batch[]>;
+  /** Cells whose current execution has been given its batch. */
+  readonly running: Set<number>;
   /** executionOrder of each cell's last ended execution. */
   readonly ended: Map<number, number | undefined>;
   /** Batch each cell's latest execution belongs to. */
-  readonly runOfCell: Map<number, number>;
-  lastActivity: number;
-  batch: Batch | undefined;
+  readonly batchOfCell: Map<number, Batch>;
+  lastBurst: number;
+  burst: Batch | undefined;
 }
 
 interface Batch {
-  readonly run: number;
+  /** Numbered once an execution really belongs to it. */
+  run: number | undefined;
   readonly cells: Set<number>;
-  executions: number;
   /** The count of the lone execution, naming it "Run N". */
   executionOrder: number | undefined;
   hasFigure: boolean;
@@ -138,11 +141,20 @@ interface Batch {
  * that drew something, "Run 12" for a lone execution, 12 being the cell's
  * execution count as the notebook shows it in the gutter.
  *
- * Fed with every cell change carrying an execution summary (sequence
- * observed in a real extension host): VS Code sends a summary with neither
- * count nor timing for each cell as it is *queued* — a Run All queues all its
- * cells at once — then one with the count as it starts, then one with timing
- * as it ends. Pure, no vscode import.
+ * Fed with every cell change carrying an execution summary. Sequence recorded
+ * in a real extension host, with executions driven the way Jupyter drives
+ * them: VS Code sends a summary with neither count nor timing for each cell
+ * as it is *queued* — a Run All queues all its cells at once — then ANOTHER
+ * one as the cell *starts*, then one with the count, then one with timing as
+ * it ends. Clearing outputs and cancelling a queued cell also send a
+ * count-less summary.
+ *
+ * Jupyter only starts a cell once the kernel acknowledges it, so a start can
+ * trail the previous cell's end by seconds (a busy kernel, a cold one): no
+ * delay tells a start from a fresh queue. Position does: an execution's queue
+ * event is the count-less summary just before its start. Count-less
+ * summaries are therefore only grouped into bursts, and an execution takes
+ * the burst of the second to last one it received. Pure, no vscode import.
  */
 export class RunTracker {
   private readonly notebooks = new Map<string, NotebookRuns>();
@@ -166,95 +178,105 @@ export class RunTracker {
   ): void {
     const state = this.stateOf(notebook);
     if (ended) {
-      state.pending.delete(cellIndex);
+      state.seen.delete(cellIndex);
+      state.running.delete(cellIndex);
       state.ended.set(cellIndex, executionOrder);
-      state.lastActivity = now;
       return;
     }
-    const queued = executionOrder === undefined;
-    // A summary without count on a cell already pending is that execution
-    // starting — unless it was left pending by an older batch, or the notebook
-    // sat idle since: then it was cancelled before it ran, and this is a fresh
-    // queue.
-    const batch = state.batch;
-    if (
-      state.pending.has(cellIndex) &&
-      state.runOfCell.get(cellIndex) === batch?.run &&
-      (!queued || now - state.lastActivity <= QUEUE_GAP_MS)
-    ) {
-      // A lone run is named after its count.
-      if (
-        !queued &&
-        batch !== undefined &&
-        batch.executions === 1 &&
-        state.runOfCell.get(cellIndex) === batch.run
-      ) {
-        batch.executionOrder = executionOrder;
-        this.label(batch);
-      }
+    if (executionOrder === undefined) {
+      this.burst(state, cellIndex, now);
       return;
     }
-    if (!queued && state.ended.get(cellIndex) === executionOrder) {
+    if (state.running.has(cellIndex)) {
+      return; // the count again
+    }
+    if (!state.seen.has(cellIndex) && state.ended.get(cellIndex) === executionOrder) {
       return; // late echo of an execution that already ended
     }
-    state.pending.add(cellIndex);
-    // A Run All runs each cell once: the same cell again is a new batch.
-    if (
-      batch !== undefined &&
-      !batch.cells.has(cellIndex) &&
-      now - state.lastActivity <= QUEUE_GAP_MS
-    ) {
-      batch.cells.add(cellIndex);
-      batch.executions++;
-      this.label(batch);
-      state.runOfCell.set(cellIndex, batch.run);
-    } else {
-      const fresh: Batch = {
-        run: this.nextRun++,
-        cells: new Set([cellIndex]),
-        executions: 1,
-        executionOrder,
-        hasFigure: false,
-        runAll: undefined,
-      };
-      state.batch = fresh;
-      state.runOfCell.set(cellIndex, fresh.run);
-      this.label(fresh);
-    }
-    state.lastActivity = now;
+    this.assign(state, cellIndex, executionOrder, now);
   }
 
   /**
-   * Batch of the cell's latest execution, for a figure it just drew;
-   * registers an execution when the kernel sent no summary at all.
+   * Batch of the cell's latest execution, for a figure it just drew; a kernel
+   * that never sends the count gets its batch here.
    */
   runOf(notebook: string, cellIndex: number, executionOrder: number | undefined, now: number): number {
     const state = this.stateOf(notebook);
-    if (!state.runOfCell.has(cellIndex)) {
-      this.observe(notebook, cellIndex, executionOrder, false, now);
+    let batch = state.batchOfCell.get(cellIndex);
+    if (batch === undefined || (!state.running.has(cellIndex) && state.seen.has(cellIndex))) {
+      batch = this.assign(state, cellIndex, executionOrder, now);
     }
-    const run = state.runOfCell.get(cellIndex) ?? 0;
-    const batch = state.batch;
-    if (batch !== undefined && batch.run === run && !batch.hasFigure) {
+    if (!batch.hasFigure) {
       batch.hasFigure = true;
       this.label(batch);
     }
-    return run;
+    return batch.run ?? 0;
   }
 
   forget(notebook: string): void {
     this.notebooks.delete(notebook);
   }
 
+  /** Files a count-less summary under the burst it arrived in. */
+  private burst(state: NotebookRuns, cellIndex: number, now: number): Batch {
+    // Without its end, the execution this cell was running is over all the same.
+    if (state.running.delete(cellIndex)) {
+      state.seen.delete(cellIndex);
+    }
+    let burst = state.burst;
+    // A Run All runs each cell once: the same cell again is another burst.
+    if (
+      burst === undefined ||
+      burst.cells.has(cellIndex) ||
+      now - state.lastBurst > QUEUE_GAP_MS
+    ) {
+      burst = {
+        run: undefined,
+        cells: new Set(),
+        executionOrder: undefined,
+        hasFigure: false,
+        runAll: undefined,
+      };
+      state.burst = burst;
+    }
+    // ponytail: the start of a cell queued earlier can land in a later queue
+    // burst and make a lone run read "Run all"; tell starts apart if it shows.
+    burst.cells.add(cellIndex);
+    state.lastBurst = now;
+    state.seen.set(cellIndex, [...(state.seen.get(cellIndex) ?? []).slice(-1), burst]);
+    return burst;
+  }
+
+  /** Gives the execution starting on this cell the batch it was queued in. */
+  private assign(
+    state: NotebookRuns,
+    cellIndex: number,
+    executionOrder: number | undefined,
+    now: number,
+  ): Batch {
+    // Queue then start: the older of the two. A kernel that sent a single
+    // summary, or none, falls back on what there is.
+    const batch = state.seen.get(cellIndex)?.[0] ?? this.burst(state, cellIndex, now);
+    batch.run ??= this.nextRun++;
+    if (batch.cells.size === 1 && executionOrder !== undefined) {
+      batch.executionOrder = executionOrder; // a lone run is named after its count
+    }
+    state.batchOfCell.set(cellIndex, batch);
+    state.running.add(cellIndex);
+    this.label(batch);
+    return batch;
+  }
+
   private stateOf(notebook: string): NotebookRuns {
     let state = this.notebooks.get(notebook);
     if (state === undefined) {
       state = {
-        pending: new Set(),
+        seen: new Map(),
+        running: new Set(),
         ended: new Map(),
-        runOfCell: new Map(),
-        lastActivity: -Infinity,
-        batch: undefined,
+        batchOfCell: new Map(),
+        lastBurst: -Infinity,
+        burst: undefined,
       };
       this.notebooks.set(notebook, state);
     }
@@ -263,11 +285,13 @@ export class RunTracker {
 
   /**
    * A Run All only takes a number once it drew a figure: batches that never
-   * reach the strip (clearing outputs also queues every cell) must not leave
-   * gaps in the numbering the user reads.
+   * reach the strip must not leave gaps in the numbering the user reads.
    */
   private label(batch: Batch): void {
-    if (batch.executions < 2) {
+    if (batch.run === undefined) {
+      return;
+    }
+    if (batch.cells.size < 2) {
       this.setLabel(
         batch.run,
         batch.executionOrder === undefined ? 'Run' : `Run ${batch.executionOrder}`,

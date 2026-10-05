@@ -134,10 +134,46 @@ suite('plot history: execution batches', () => {
     const { runs } = tracker();
     runs.observe('nb', 0, undefined, false, 1000);
     runs.observe('nb', 1, undefined, false, 1000);
+    runs.observe('nb', 0, undefined, false, 1005); // cell 0 starts
     const cancelled = runs.runOf('nb', 0, 1, 1010);
-    runs.observe('nb', 0, 1, true, 1020); // interrupted: cell 1 never ends
-    runs.observe('nb', 1, undefined, false, 9000);
-    assert.notStrictEqual(runs.runOf('nb', 1, 3, 9010), cancelled);
+    runs.observe('nb', 0, 1, true, 1020); // it fails...
+    runs.observe('nb', 1, undefined, false, 1025); // ...which cancels cell 1
+    runs.observe('nb', 1, undefined, false, 9000); // queued again by hand
+    runs.observe('nb', 1, undefined, false, 9005);
+    runs.observe('nb', 1, 3, false, 9010);
+    assert.notStrictEqual(runs.runOf('nb', 1, 3, 9020), cancelled);
+  });
+
+  test('a busy kernel starting cells seconds apart does not split a Run All', () => {
+    const { runs, labels } = tracker();
+    // Event sequence recorded from a real extension host, executions driven
+    // like Jupyter does: all queued at once, each started when the kernel
+    // gets to it.
+    for (const cell of [0, 1, 2]) {
+      runs.observe('nb', cell, undefined, false, 1000);
+    }
+    let at = 1000;
+    const batches = [0, 1, 2].map((cell) => {
+      at += 4 * QUEUE_GAP_MS; // the kernel was busy
+      runs.observe('nb', cell, undefined, false, at); // start
+      runs.observe('nb', cell, cell + 1, false, at + 10);
+      const run = runs.runOf('nb', cell, cell + 1, at + 20);
+      runs.observe('nb', cell, cell + 1, true, at + 30);
+      return run;
+    });
+    assert.deepStrictEqual(batches, [batches[0], batches[0], batches[0]]);
+    assert.strictEqual(labels.get(batches[0] ?? -1), 'Run all 1');
+
+    // Clear All Outputs, then one cell by hand: its own run, named by count.
+    for (const cell of [0, 1, 2]) {
+      runs.observe('nb', cell, undefined, false, 20000);
+    }
+    runs.observe('nb', 1, undefined, false, 30000); // queue
+    runs.observe('nb', 1, undefined, false, 31000); // start
+    runs.observe('nb', 1, 4, false, 31010);
+    const lone = runs.runOf('nb', 1, 4, 31020);
+    assert.notStrictEqual(lone, batches[0]);
+    assert.strictEqual(labels.get(lone), 'Run 4');
   });
 
   test('a multi-cell batch that draws nothing leaves no gap in the numbering', () => {
