@@ -1,5 +1,5 @@
 import * as assert from 'assert';
-import { QUEUE_GAP_MS, RunTracker, groupIntoRuns, runAllOrdinal, type Runnable } from '../runs';
+import { QUEUE_GAP_MS, RunningCells, RunTracker, groupIntoRuns, runAllOrdinal, type Runnable } from '../runs';
 
 const NB = 'file:///nb.ipynb';
 
@@ -213,6 +213,22 @@ suite('plot history: execution batches', () => {
     runs.observe('nb', 0, undefined, false, 9000);
     runs.observe('nb', 1, undefined, false, 9000);
     assert.strictEqual(labels.get(runs.runOf('nb', 1, undefined, 9100)), 'Run all 1');
+  });
+
+  test('a cell is running from its count to its end, and at no other time', () => {
+    const cells = new RunningCells();
+    cells.observe(0, undefined, false); // queued
+    cells.observe(0, undefined, false); // started
+    assert.strictEqual(cells.any, false);
+    cells.observe(0, 1, false);
+    cells.observe(0, 1, false); // the count again, with an output
+    assert.strictEqual(cells.any, true);
+    cells.observe(0, 1, true);
+    cells.observe(0, 1, false); // late echo
+    assert.strictEqual(cells.any, false);
+    cells.observe(1, 2, false);
+    cells.observe(1, undefined, false); // lost its end to a kernel restart
+    assert.strictEqual(cells.any, false);
   });
 
   test('entries carrying a batch group by it; restored labels resume the count', () => {

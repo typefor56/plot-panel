@@ -320,6 +320,34 @@ export class RunTracker {
   }
 }
 
+/**
+ * Which cells of a notebook are executing right now, from the same summaries
+ * as RunTracker: a count without timing is a cell running, timing is its end.
+ * Lets kernel work that can wait (listing variables) stay out of a Run All:
+ * a request sent while a cell runs is served right after it, before the next
+ * cell, and holds every cell back by as much. Pure, no vscode import.
+ */
+export class RunningCells {
+  private readonly running = new Set<number>();
+  /** executionOrder of each cell's last ended execution. */
+  private readonly ended = new Map<number, number | undefined>();
+
+  observe(cellIndex: number, executionOrder: number | undefined, ended: boolean): void {
+    if (ended) {
+      this.running.delete(cellIndex);
+      this.ended.set(cellIndex, executionOrder);
+    } else if (executionOrder === undefined) {
+      this.running.delete(cellIndex); // queued, starting or cancelled: not running
+    } else if (this.ended.get(cellIndex) !== executionOrder) {
+      this.running.add(cellIndex); // not the late echo of an execution that ended
+    }
+  }
+
+  get any(): boolean {
+    return this.running.size > 0;
+  }
+}
+
 /** Ordinal of a "Run all N" label, 0 for any other label. */
 export function runAllOrdinal(label: string): number {
   const match = /^Run all (\d+)$/.exec(label);

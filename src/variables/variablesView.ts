@@ -16,7 +16,7 @@ import type { ConsoleSession } from '../console/session';
 import type { ConsoleSessionManager } from '../console/sessionManager';
 import { ExpandRegistry, type PreviewRow, truncate } from './expandTree';
 import { isShadowNotebook } from '../capture';
-import { startsNewRun } from '../runs';
+import { RunningCells, startsNewRun } from '../runs';
 import { parsePythonDefinitions } from './pythonDefs';
 import type { VariablesOptions } from './variablesOptions';
 
@@ -304,6 +304,8 @@ export class VariablesViewProvider implements vscode.WebviewViewProvider, vscode
    */
   private readonly runChanged = new Map<string, Set<string>>();
   private readonly runReached = new Map<string, number>();
+  /** Cells executing in each notebook (by URI): listing waits for them. */
+  private readonly running = new Map<string, RunningCells>();
   /** Sources where an execution ended since their last listing. */
   private readonly ranSince = new Set<string>();
   /** Epoch of the source being decorated. */
@@ -337,11 +339,21 @@ export class VariablesViewProvider implements vscode.WebviewViewProvider, vscode
         if (isShadowNotebook(event.notebook)) {
           return; // kernel-less mirror: targeting it empties VALUES/DATA
         }
+        const key = event.notebook.uri.toString();
+        for (const change of event.cellChanges) {
+          const summary = change.executionSummary;
+          if (summary !== undefined) {
+            let running = this.running.get(key);
+            if (running === undefined) {
+              this.running.set(key, (running = new RunningCells()));
+            }
+            running.observe(change.cell.index, summary.executionOrder, summary.timing !== undefined);
+          }
+        }
         const finished =event.cellChanges.some(
           (change) => change.executionSummary?.timing !== undefined,
         );
         if (finished) {
-          const key = event.notebook.uri.toString();
           const indices = event.cellChanges
             .filter((change) => change.executionSummary?.timing !== undefined)
             .map((change) => change.cell.index);
@@ -353,7 +365,7 @@ export class VariablesViewProvider implements vscode.WebviewViewProvider, vscode
           this.ranSince.add(key);
           this.target = { kind: 'notebook', notebook: event.notebook };
           if (this.autoRefresh()) {
-            this.scheduleRefresh(REFRESH_DEBOUNCE_MS);
+            this.scheduleRefresh(REFRESH_DEBOUNCE_MS, key);
           } else {
             this.stale = true;
           }
@@ -386,6 +398,7 @@ export class VariablesViewProvider implements vscode.WebviewViewProvider, vscode
         this.recency.delete(key);
         this.clearedAt.delete(key);
         this.snapshots.delete(key);
+        this.running.delete(key);
         if (this.targets(notebook)) {
           this.switchTo(undefined);
         }
@@ -524,12 +537,20 @@ export class VariablesViewProvider implements vscode.WebviewViewProvider, vscode
     return this.doRefresh();
   }
 
-  private scheduleRefresh(delay: number): void {
+  /**
+   * `unlessRunning` names a notebook whose listing can wait: if one of its
+   * cells is executing when the delay elapses (the next cell of a Run All),
+   * nothing is sent — that cell's end schedules the listing again.
+   */
+  private scheduleRefresh(delay: number, unlessRunning?: string): void {
     if (this.refreshTimer !== undefined) {
       clearTimeout(this.refreshTimer);
     }
     this.refreshTimer = setTimeout(() => {
       this.refreshTimer = undefined;
+      if (unlessRunning !== undefined && this.running.get(unlessRunning)?.any === true) {
+        return;
+      }
       void this.doRefresh();
     }, delay);
   }
@@ -773,6 +794,7 @@ export class VariablesViewProvider implements vscode.WebviewViewProvider, vscode
       return;
     }
     this.clearedAt.set(target.notebook.uri.toString(), Date.now());
+    this.running.delete(target.notebook.uri.toString()); // its cells died with the kernel
     this.recency.delete(targetKey(target));
     this.fetchedAt.delete(targetKey(target));
     this.scheduleRefresh(REFRESH_DEBOUNCE_MS);

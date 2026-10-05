@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.6
+
+- A Run All is no longer slowed down by the Variables view: the list now
+  waits until no cell is running instead of asking the kernel between two
+  cells. Measured on a 21-cell notebook with 9 figures: 9.6 s before,
+  6.5 s now, 6.1 to 6.5 s without the extension. The list therefore
+  updates once at the end of a Run All rather than after each cell.
+
 ## 0.2.5
 
 - A Run All also stays one run when VS Code itself is slow to queue the

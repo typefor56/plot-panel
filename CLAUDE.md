@@ -203,6 +203,13 @@ Toute violation est un échec du projet, pas un compromis acceptable :
   se déclenche que vue visible, qu'en **fin d'exécution**
   (`executionSummary.timing`, debounce 500 ms), avec un seul fetch en vol
   (coalescing), et `plotPanel.variablesAutoRefresh: false` le rend manuel.
+  **Et jamais pendant qu'une cellule tourne** (`RunningCells`, `runs.ts`) :
+  une requête envoyée pendant une cellule est servie juste après elle, avant
+  la suivante. Mesuré (2026-10-05, vrai Jupyter, `ml-tp1`, 21 cellules,
+  9 figures) : chaque cellule de plus de 500 ms retardait la suivante de
+  ~450 ms, soit un Run All à 9,6 s contre 6,1–6,5 s sans l'extension ;
+  6,5 s une fois le listing reporté à la fin. La liste ne bouge donc plus
+  cellule par cellule pendant un Run All.
   Corollaire : chaque fetch est **décoré une fois** (row + size + changedAt +
   `fallbackChildren`) ; changer groupement/tri ne fait que re-projeter ce
   cache, jamais retoucher le kernel ni re-parser.
