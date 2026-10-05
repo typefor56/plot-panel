@@ -75,6 +75,12 @@ export class PlotCapture implements vscode.Disposable {
   private readonly subscription: vscode.Disposable;
   private readonly unsupportedListeners = new Set<UnsupportedOutputListener>();
   readonly runs: RunTracker;
+  /**
+   * What the run grouping was fed, kept in VS Code's own log folder: grouping
+   * is inferred from an undocumented event sequence, and when it goes wrong
+   * on someone's machine this is the only record of what that machine sent.
+   */
+  private readonly log = vscode.window.createOutputChannel('Plot Panel', { log: true });
 
   constructor(
     private readonly history: PlotHistory,
@@ -102,6 +108,11 @@ export class PlotCapture implements vscode.Disposable {
     for(const change of event.cellChanges) {
       const summary = change.executionSummary;
       if (summary !== undefined) {
+        this.log.info(
+          `summary cell=${change.cell.index} order=${summary.executionOrder} ended=${
+            summary.timing !== undefined
+          } success=${summary.success}`,
+        );
         this.runs.observe(
           event.notebook.uri.toString(),
           change.cell.index,
@@ -133,6 +144,7 @@ export class PlotCapture implements vscode.Disposable {
       const notebookUri = notebook.uri.toString();
       const executionOrder = cell.executionSummary?.executionOrder;
       const run = this.runs.runOf(notebookUri, cell.index, executionOrder, Date.now());
+      this.log.info(`figure cell=${cell.index} order=${executionOrder} run=${run}`);
       const contentHash = contentId(image.mime, image.data);
       const entry: PlotEntry = {
         id: captureId(contentHash, notebookUri, cell.index, run),
@@ -167,6 +179,7 @@ export class PlotCapture implements vscode.Disposable {
 
   dispose(): void {
     this.subscription.dispose();
+    this.log.dispose();
     this.unsupportedListeners.clear();
   }
 }

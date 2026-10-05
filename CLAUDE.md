@@ -102,10 +102,19 @@ Toute violation est un échec du projet, pas un compromis acceptable :
   donc un démarrage d'une nouvelle mise en file — ne pas retenter** : c'est ce
   qui coupait les Run All en deux. Seule la position le fait : la mise en
   file d'une exécution est le résumé sans count **juste avant** son
-  démarrage. Les résumés sans count sont seulement groupés en rafales
-  (≤ `QUEUE_GAP_MS` (500 ms) entre deux, et jamais deux fois la même
-  cellule), et une exécution prend la rafale de l'**avant-dernier** qu'elle a
-  reçu. Libellés portés par `PlotHistory` (persistés en `runLabels` dans
+  démarrage. Les résumés sans count sont seulement groupés en rafales, et
+  une exécution prend la rafale de l'**avant-dernier** qu'elle a reçu. Une
+  rafale se ferme quand **une exécution démarre ou se termine réellement**
+  (ou quand la même cellule revient), pas au bout d'un délai : sur un VS Code
+  chargé, la mise en file d'UN Run All s'est étalée avec des trous de plus de
+  500 ms et la 0.2.4 l'a coupé en six (sur `ml-tp1`, vérifié en rejouant le
+  flux réel de Jupyter 2025.9.1 et 2026.6 avec une file étirée).
+  `QUEUE_GAP_MS` (5 s) n'est plus qu'un garde-fou. Un kernel sans count
+  répète son résumé sans count pendant que la cellule tourne : une cellule
+  affectée ignore ces répétitions. **Journal** : chaque résumé et chaque
+  figure sont écrits dans le canal de log « Plot Panel »
+  (`~/.config/Code/logs/<session>/window*/exthost/for56.plot-panel/`) — le
+  lire AVANT de raisonner si le groupement casse encore chez quelqu'un. Libellés portés par `PlotHistory` (persistés en `runLabels` dans
   `index.json`) : « Run all N » (N attribué seulement quand le lot dessine une
   figure, pour ne pas trouer la numérotation), « Run y » pour une exécution
   seule, y = son count (le `[y]` de la marge). Limite assumée : Run

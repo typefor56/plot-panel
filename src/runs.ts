@@ -102,12 +102,15 @@ export function groupIntoRuns(entries: readonly Runnable[]): readonly RunGroup[]
 }
 
 /**
- * Cells queued within this delay of one another belong to the same batch.
- * Measured in a real extension host: Run All queues every cell within a few
- * milliseconds; a person running cells by hand is far slower.
+ * Cells queued further apart than this are separate batches even when nothing
+ * ran in between. Only a backstop: what really ends a queue burst is an
+ * execution starting or ending. It has to be generous — a loaded VS Code was
+ * seen spreading the queue events of ONE Run All over seconds, with holes of
+ * more than 500 ms that cut it into six runs.
  */
-// ponytail: fixed delay; a Shift+Enter quicker than this counts as one batch.
-export const QUEUE_GAP_MS = 500;
+// ponytail: fixed delay; cells queued by hand quicker than this while the
+// kernel is busy with another cell count as one batch.
+export const QUEUE_GAP_MS = 5000;
 
 interface NotebookRuns {
   /**
@@ -129,6 +132,8 @@ interface Batch {
   /** Numbered once an execution really belongs to it. */
   run: number | undefined;
   readonly cells: Set<number>;
+  /** An execution started or ended since: whatever is queued next is new. */
+  closed: boolean;
   /** The count of the lone execution, naming it "Run N". */
   executionOrder: number | undefined;
   hasFigure: boolean;
@@ -154,7 +159,10 @@ interface Batch {
  * delay tells a start from a fresh queue. Position does: an execution's queue
  * event is the count-less summary just before its start. Count-less
  * summaries are therefore only grouped into bursts, and an execution takes
- * the burst of the second to last one it received. Pure, no vscode import.
+ * the burst of the second to last one it received. A burst lasts until an
+ * execution starts or ends, not for a set time: the clock of a loaded window
+ * is no better at delimiting a queue than at delimiting a start. Pure, no
+ * vscode import.
  */
 export class RunTracker {
   private readonly notebooks = new Map<string, NotebookRuns>();
@@ -179,7 +187,10 @@ export class RunTracker {
     const state = this.stateOf(notebook);
     if (ended) {
       state.seen.delete(cellIndex);
-      state.running.delete(cellIndex);
+      // Not the late repeats of an end: those land anywhere.
+      if (state.running.delete(cellIndex) && state.burst !== undefined) {
+        state.burst.closed = true;
+      }
       state.ended.set(cellIndex, executionOrder);
       return;
     }
@@ -187,8 +198,10 @@ export class RunTracker {
       this.burst(state, cellIndex, now);
       return;
     }
-    if (state.running.has(cellIndex)) {
-      return; // the count again
+    // The count again — unless the cell was queued and started anew since,
+    // its previous execution having lost its end to a kernel restart.
+    if (state.running.has(cellIndex) && (state.seen.get(cellIndex)?.length ?? 0) < 2) {
+      return;
     }
     if (!state.seen.has(cellIndex) && state.ended.get(cellIndex) === executionOrder) {
       return; // late echo of an execution that already ended
@@ -219,28 +232,24 @@ export class RunTracker {
 
   /** Files a count-less summary under the burst it arrived in. */
   private burst(state: NotebookRuns, cellIndex: number, now: number): Batch {
-    // Without its end, the execution this cell was running is over all the same.
-    if (state.running.delete(cellIndex)) {
-      state.seen.delete(cellIndex);
-    }
     let burst = state.burst;
     // A Run All runs each cell once: the same cell again is another burst.
     if (
       burst === undefined ||
+      burst.closed ||
       burst.cells.has(cellIndex) ||
       now - state.lastBurst > QUEUE_GAP_MS
     ) {
       burst = {
         run: undefined,
         cells: new Set(),
+        closed: false,
         executionOrder: undefined,
         hasFigure: false,
         runAll: undefined,
       };
       state.burst = burst;
     }
-    // ponytail: the start of a cell queued earlier can land in a later queue
-    // burst and make a lone run read "Run all"; tell starts apart if it shows.
     burst.cells.add(cellIndex);
     state.lastBurst = now;
     state.seen.set(cellIndex, [...(state.seen.get(cellIndex) ?? []).slice(-1), burst]);
@@ -262,7 +271,13 @@ export class RunTracker {
       batch.executionOrder = executionOrder; // a lone run is named after its count
     }
     state.batchOfCell.set(cellIndex, batch);
+    // A kernel that sends no count repeats its count-less summary while the
+    // cell runs: from here on those say nothing about this execution.
+    state.seen.delete(cellIndex);
     state.running.add(cellIndex);
+    if (state.burst !== undefined) {
+      state.burst.closed = true;
+    }
     this.label(batch);
     return batch;
   }

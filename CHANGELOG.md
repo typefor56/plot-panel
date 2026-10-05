@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.5
+
+- A Run All also stays one run when VS Code itself is slow to queue the
+  cells (seen right after startup, where 0.2.4 still cut it into several).
+- Two cells run by hand one right after the other are two runs, however
+  quick.
+- The "Plot Panel" log channel records what the run grouping receives.
+
 ## 0.2.4
 
 - A Run All stays one run in the plot strip when the kernel takes its time

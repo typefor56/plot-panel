@@ -176,6 +176,36 @@ suite('plot history: execution batches', () => {
     assert.strictEqual(labels.get(lone), 'Run 4');
   });
 
+  test('a loaded window queueing a Run All over seconds does not split it', () => {
+    const { runs, labels } = tracker();
+    // Queue events 600 ms apart: what cut one Run All into six runs.
+    [0, 1, 2, 3].forEach((cell, i) => runs.observe('nb', cell, undefined, false, 1000 + 600 * i));
+    const batches = [0, 1, 2, 3].map((cell) => {
+      const at = 10000 + 1000 * cell;
+      runs.observe('nb', cell, undefined, false, at); // start
+      runs.observe('nb', cell, cell + 1, false, at + 10);
+      const run = runs.runOf('nb', cell, cell + 1, at + 20);
+      runs.observe('nb', cell, cell + 1, true, at + 30);
+      return run;
+    });
+    assert.deepStrictEqual(new Set(batches).size, 1);
+    assert.strictEqual(labels.get(batches[0] ?? -1), 'Run all 1');
+
+    // Two cells run by hand right after one another are still two runs: the
+    // first one running is what separates them, not the time between them.
+    const byHand = [5, 6].map((cell, i) => {
+      const at = 20000 + 100 * i;
+      runs.observe('nb', cell, undefined, false, at); // queue
+      runs.observe('nb', cell, undefined, false, at + 5); // start
+      runs.observe('nb', cell, 10 + i, false, at + 10);
+      const run = runs.runOf('nb', cell, 10 + i, at + 20);
+      runs.observe('nb', cell, 10 + i, true, at + 30);
+      return run;
+    });
+    assert.notStrictEqual(byHand[0], byHand[1]);
+    assert.strictEqual(labels.get(byHand[1] ?? -1), 'Run 11');
+  });
+
   test('a multi-cell batch that draws nothing leaves no gap in the numbering', () => {
     const { runs, labels } = tracker();
     runs.observe('nb', 0, undefined, false, 1000); // e.g. Clear All Outputs
