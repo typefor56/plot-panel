@@ -2,7 +2,7 @@
   "name": "plot-panel",
   "displayName": "Plot Panel",
   "description": "A data science layout for VS Code: a persistent plots pane with history, a Variables explorer, and an interactive Python or R console in the panel.",
-  "version": "0.2.6",
+  "version": "0.2.7",
   "publisher": "for56",
   "license": "MIT",
   "icon": "media/icon.png",
@@ -629,7 +629,7 @@
       "properties": {
         "plotPanel.autoReveal": {
           "type": "boolean",
-          "default": true,
+          "default": false,
           "description": "Reveal the Plots view automatically when a new figure arrives."
         },
         "plotPanel.followLatest": {

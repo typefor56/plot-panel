@@ -114,7 +114,7 @@ lists them runs on the kernel, so it waits its turn behind your code.
 
 | Setting | Default | Effect |
 | --- | --- | --- |
-| `plotPanel.autoReveal` | `true` | Reveal the Plots view when a figure arrives, without taking focus. |
+| `plotPanel.autoReveal` | `false` | Reveal the Plots view when a figure arrives (switches the sidebar tab, without taking keyboard focus). |
 | `plotPanel.followLatest` | `true` | Select the newest figure. Turn off to keep your place while figures accumulate. |
 | `plotPanel.historyLimit` | `50` | How many figures to keep. The oldest go first. |
 | `plotPanel.variablesAutoRefresh` | `true` | Refresh the variables when a cell finishes. Turn off on heavy notebooks and use the refresh button. |

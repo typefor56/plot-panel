@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.7
+
+- A new figure no longer switches the secondary sidebar to the Plots tab
+  (for example away from Chat): `plotPanel.autoReveal` now defaults to
+  `false`. Set it back to `true` to get the old behaviour.
+
 ## 0.2.6
 
 - A Run All is no longer slowed down by the Variables view: the list now

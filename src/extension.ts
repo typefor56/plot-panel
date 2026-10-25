@@ -224,7 +224,7 @@ export function activate(context: vscode.ExtensionContext): PlotPanelApi {
       ),
       new vscode.Disposable(
         history.onDidChange((event) => {
-          if (event.type === 'added' && configuration().get('autoReveal', true)) {
+          if (event.type === 'added' && configuration().get('autoReveal', false)) {
             void provider.reveal();
           }
         }),
